@@ -1,0 +1,11 @@
+BasedOnStyle: Google
+IncludeBlocks: Regroup
+IncludeCategories:
+  - Regex: '^<.*\.h>'
+    Priority: 1
+  - Regex: '^<'
+    Priority: 2
+  - Regex: '^"(SDL3|backends|glad|glm)/|^"imgui[^"]*\.h"'
+    Priority: 3
+  - Regex: '.*'
+    Priority: 4

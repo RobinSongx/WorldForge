@@ -1,0 +1,381 @@
+// Copyright 2026 WorldForge contributors
+// SPDX-License-Identifier: MIT
+
+#include "ui/studio_panels.h"
+
+#include <algorithm>
+#include <string>
+
+#include "glm/gtc/type_ptr.hpp"
+#include "imgui.h"  // NOLINT(build/include_subdir): upstream public header.
+#include "imgui_internal.h"  // NOLINT(build/include_subdir): upstream public header.
+
+#include "editor/editor_state.h"
+#include "render/viewport_renderer.h"
+
+namespace wf {
+namespace {
+constexpr ImVec4 kAccent{0.87f, 0.65f, 0.34f, 1.0f};
+constexpr ImVec4 kMuted{0.53f, 0.60f, 0.65f, 1.0f};
+void DrawLabel(const char* text) { ImGui::TextColored(kMuted, "%s", text); }
+void ResetDock(ImGuiID id, const ImVec2& size) {
+  ImGui::DockBuilderRemoveNode(id);
+  ImGui::DockBuilderAddNode(id, ImGuiDockNodeFlags_DockSpace);
+  ImGui::DockBuilderSetNodeSize(id, size);
+  auto center = id;
+  ImGuiID left = 0;
+  ImGuiID right = 0;
+  ImGuiID bottom = 0;
+  ImGuiID bottom_right = 0;
+  ImGui::DockBuilderSplitNode(center, ImGuiDir_Left, .18f, &left, &center);
+  ImGui::DockBuilderSplitNode(center, ImGuiDir_Right, .25f, &right, &center);
+  ImGui::DockBuilderSplitNode(center, ImGuiDir_Down, .25f, &bottom, &center);
+  ImGui::DockBuilderSplitNode(bottom, ImGuiDir_Right, .40f, &bottom_right,
+                              &bottom);
+  ImGui::DockBuilderDockWindow("Scene", left);
+  ImGui::DockBuilderDockWindow("Inspector", right);
+  ImGui::DockBuilderDockWindow("Viewport", center);
+  ImGui::DockBuilderDockWindow("Console", bottom);
+  ImGui::DockBuilderDockWindow("Assets", bottom);
+  ImGui::DockBuilderDockWindow("Performance", bottom_right);
+  ImGui::DockBuilderFinish(id);
+}
+void DrawHeader(EditorState& editor, PanelState& panels) {
+  if (!ImGui::BeginMainMenuBar()) return;
+  ImGui::TextColored(kAccent, "W O R L D F O R G E");
+  ImGui::Dummy({14, 0});
+  if (ImGui::BeginMenu("File")) {
+    if (ImGui::MenuItem("Exit")) panels.quit_requested = true;
+    ImGui::EndMenu();
+  }
+  if (ImGui::BeginMenu("Scene")) {
+    if (ImGui::MenuItem("Add cube")) editor.AddCube();
+    if (ImGui::MenuItem("Delete selected", nullptr, false,
+                        editor.selected() != nullptr))
+      editor.RemoveSelected();
+    ImGui::EndMenu();
+  }
+  if (ImGui::BeginMenu("View")) {
+    ImGui::MenuItem("Scene", nullptr, &panels.hierarchy);
+    ImGui::MenuItem("Inspector", nullptr, &panels.inspector);
+    ImGui::MenuItem("Console", nullptr, &panels.console);
+    ImGui::MenuItem("Assets", nullptr, &panels.assets);
+    ImGui::MenuItem("Performance", nullptr, &panels.performance);
+    if (ImGui::MenuItem("Reset layout")) panels.reset_layout = true;
+    ImGui::EndMenu();
+  }
+  const char* status = "WINDOWS / FRAMEWORK PREVIEW";
+  const float status_width = ImGui::CalcTextSize(status).x;
+  if (ImGui::GetWindowWidth() > ImGui::GetCursorPosX() + status_width + 30) {
+    ImGui::SameLine(ImGui::GetWindowWidth() - status_width - 40);
+    DrawLabel(status);
+  }
+  ImGui::EndMainMenuBar();
+}
+}  // namespace
+void ApplyTheme(float scale) {
+  ImGui::GetStyle() = ImGuiStyle{};
+  ImGui::StyleColorsDark();
+  auto& style = ImGui::GetStyle();
+  style.FontSizeBase = 14.0f;
+  style.WindowRounding = 4;
+  style.FrameRounding = 3;
+  style.GrabRounding = 3;
+  style.TabRounding = 3;
+  style.WindowBorderSize = 1;
+  style.FrameBorderSize = 0;
+  style.WindowPadding = {14, 12};
+  style.FramePadding = {8, 5};
+  style.ItemSpacing = {8, 8};
+  auto* colors = style.Colors;
+  colors[ImGuiCol_WindowBg] = {.068f, .079f, .092f, 1};
+  colors[ImGuiCol_ChildBg] = colors[ImGuiCol_WindowBg];
+  colors[ImGuiCol_PopupBg] = {.09f, .105f, .12f, 1};
+  colors[ImGuiCol_Border] = {.16f, .19f, .22f, 1};
+  colors[ImGuiCol_TitleBg] = {.075f, .09f, .10f, 1};
+  colors[ImGuiCol_TitleBgActive] = {.12f, .14f, .16f, 1};
+  colors[ImGuiCol_MenuBarBg] = {.048f, .059f, .07f, 1};
+  colors[ImGuiCol_Header] = {.18f, .22f, .25f, 1};
+  colors[ImGuiCol_HeaderHovered] = {.25f, .29f, .31f, 1};
+  colors[ImGuiCol_HeaderActive] = {.32f, .28f, .21f, 1};
+  colors[ImGuiCol_FrameBg] = {.115f, .14f, .16f, 1};
+  colors[ImGuiCol_FrameBgHovered] = {.19f, .23f, .26f, 1};
+  colors[ImGuiCol_Button] = {.19f, .23f, .26f, 1};
+  colors[ImGuiCol_ButtonHovered] = {.32f, .29f, .23f, 1};
+  colors[ImGuiCol_ButtonActive] = {.43f, .33f, .20f, 1};
+  colors[ImGuiCol_CheckMark] = kAccent;
+  colors[ImGuiCol_SliderGrab] = kAccent;
+  colors[ImGuiCol_SliderGrabActive] = kAccent;
+  colors[ImGuiCol_Tab] = {.09f, .11f, .13f, 1};
+  colors[ImGuiCol_TabSelected] = {.17f, .20f, .23f, 1};
+  colors[ImGuiCol_TabHovered] = {.30f, .26f, .20f, 1};
+  colors[ImGuiCol_DockingPreview] = {.87f, .65f, .34f, .3f};
+  colors[ImGuiCol_Text] = {.88f, .91f, .93f, 1};
+  colors[ImGuiCol_TextDisabled] = kMuted;
+  style.ScaleAllSizes(scale);
+  style.FontScaleDpi = scale;
+}
+namespace {
+void DrawDock(PanelState& panels) {
+  auto* main = ImGui::GetMainViewport();
+  ImGui::SetNextWindowPos(main->WorkPos);
+  ImGui::SetNextWindowSize(main->WorkSize);
+  ImGui::SetNextWindowViewport(main->ID);
+  ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 0);
+  ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 0);
+  ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0, 0));
+  ImGui::Begin("StudioDock", nullptr,
+               ImGuiWindowFlags_NoDocking | ImGuiWindowFlags_NoTitleBar |
+                   ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoResize |
+                   ImGuiWindowFlags_NoMove |
+                   ImGuiWindowFlags_NoBringToFrontOnFocus |
+                   ImGuiWindowFlags_NoNavFocus);
+  ImGui::PopStyleVar(3);
+  const auto dock_id = ImGui::GetID("WorldForgeDock");
+  if (!ImGui::DockBuilderGetNode(dock_id) || panels.reset_layout) {
+    ResetDock(dock_id, main->WorkSize);
+    panels.reset_layout = false;
+    panels.hierarchy = panels.inspector = panels.console = panels.performance =
+        panels.assets = true;
+  }
+  ImGui::DockSpace(dock_id, ImVec2(0, 0), ImGuiDockNodeFlags_None);
+  ImGui::End();
+  panels.panels_drawn = 0;
+}
+
+void DrawScene(EditorState& editor, PanelState& panels) {
+  if (panels.hierarchy) {
+    const bool shown = ImGui::Begin("Scene", &panels.hierarchy);
+    ++panels.panels_drawn;
+    if (shown) {
+      DrawLabel("UNTITLED WORLD");
+      ImGui::Separator();
+      if (ImGui::Button("+ Cube")) editor.AddCube();
+      ImGui::SameLine();
+      if (ImGui::Button("New")) ImGui::OpenPopup("New scene?");
+      if (ImGui::BeginPopupModal("New scene?", nullptr,
+                                 ImGuiWindowFlags_AlwaysAutoResize)) {
+        ImGui::TextUnformatted(
+            "Discard this in-memory scene?\nProject saving arrives in the Mesh "
+            "milestone.");
+        if (ImGui::Button("Discard and create")) {
+          editor.NewScene();
+          ImGui::CloseCurrentPopup();
+        }
+        ImGui::SameLine();
+        if (ImGui::Button("Cancel")) ImGui::CloseCurrentPopup();
+        ImGui::EndPopup();
+      }
+      ImGui::Spacing();
+      for (const auto& entity : editor.entities()) {
+        ImGui::PushID(static_cast<int>(entity.id));
+        if (ImGui::Selectable(entity.name.c_str(),
+                              editor.selection() == entity.id))
+          editor.Select(entity.id);
+        ImGui::PopID();
+      }
+      ImGui::Spacing();
+      ImGui::Separator();
+      DrawLabel("PROCEDURAL CONTENT");
+      ImGui::TextWrapped(
+          "%zu entities\nSelect an object to edit its transform.",
+          editor.entities().size());
+    }
+    ImGui::End();
+  }
+}
+
+void DrawInspector(EditorState& editor, PanelState& panels) {
+  if (panels.inspector) {
+    const bool shown = ImGui::Begin("Inspector", &panels.inspector);
+    ++panels.panels_drawn;
+    if (shown) {
+      if (auto* entity = editor.selected()) {
+        DrawLabel("SELECTED OBJECT");
+        ImGui::TextColored(kAccent, "%s", entity->name.c_str());
+        ImGui::Separator();
+        ImGui::Checkbox("Visible", &entity->visible);
+        if (ImGui::CollapsingHeader("Transform",
+                                    ImGuiTreeNodeFlags_DefaultOpen)) {
+          auto transform = entity->transform;
+          DrawLabel("Position");
+          ImGui::SetNextItemWidth(-1);
+          bool changed = ImGui::DragFloat3(
+              "##position", glm::value_ptr(transform.position), .02f);
+          DrawLabel("Rotation / degrees");
+          ImGui::SetNextItemWidth(-1);
+          changed |= ImGui::DragFloat3(
+              "##rotation", glm::value_ptr(transform.rotation_degrees), .5f);
+          DrawLabel("Scale");
+          ImGui::SetNextItemWidth(-1);
+          changed |= ImGui::DragFloat3(
+              "##scale", glm::value_ptr(transform.scale), .01f, .01f, 100.0f);
+          if (changed && !editor.SetTransform(entity->id, transform))
+            editor.Log("WARN", "Rejected invalid transform");
+          if (ImGui::Button("Reset transform")) {
+            Transform reset;
+            reset.position.y = .5f;
+            editor.SetTransform(entity->id, reset);
+          }
+        }
+        if (ImGui::CollapsingHeader("Appearance",
+                                    ImGuiTreeNodeFlags_DefaultOpen))
+          ImGui::ColorEdit3("Tint", glm::value_ptr(entity->color),
+                            ImGuiColorEditFlags_NoInputs);
+        if (ImGui::CollapsingHeader("Geometry",
+                                    ImGuiTreeNodeFlags_DefaultOpen)) {
+          ImGui::TextUnformatted(
+              "Built-in cube\n12 triangles / 36 vertices\nPreview diffuse "
+              "shader");
+        }
+        ImGui::Spacing();
+        if (ImGui::Button("Frame selected")) editor.camera().Frame(*entity);
+        if (ImGui::Button("Delete selected")) editor.RemoveSelected();
+      } else {
+        DrawLabel("NO SELECTION");
+        ImGui::TextWrapped("Choose an object in the Scene panel.");
+      }
+    }
+    ImGui::End();
+  }
+}
+
+bool DrawViewport(EditorState& editor, ViewportRenderer& renderer,
+                  PanelState& panels, std::string* error) {
+  {
+    const bool shown = ImGui::Begin(
+        "Viewport", nullptr,
+        ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
+    ++panels.panels_drawn;
+    if (shown) {
+      ImGui::TextColored(kAccent, "PERSPECTIVE");
+      ImGui::SameLine();
+      ImGui::Checkbox("Grid", &editor.display_options().grid);
+      ImGui::SameLine();
+      ImGui::Checkbox("Wireframe", &editor.display_options().wireframe);
+      ImGui::SameLine();
+      if (ImGui::Button("Frame") && editor.selected())
+        editor.camera().Frame(*editor.selected());
+      ImGui::SameLine();
+      if (ImGui::Button("Reset camera")) editor.camera() = OrbitCamera{};
+      const auto size = ImGui::GetContentRegionAvail();
+      if (size.x > 1 && size.y > 1) {
+        const auto origin = ImGui::GetCursorScreenPos();
+        panels.image_x = origin.x;
+        panels.image_y = origin.y;
+        const auto& io = ImGui::GetIO();
+        panels.viewport_width = std::max(
+            1, static_cast<int>(size.x * io.DisplayFramebufferScale.x));
+        panels.viewport_height = std::max(
+            1, static_cast<int>(size.y * io.DisplayFramebufferScale.y));
+        // Image refers to a stable texture until Render() resizes it: draw
+        // after render.
+        if (!renderer.Render(editor, panels.viewport_width,
+                             panels.viewport_height, error)) {
+          ImGui::End();
+          return false;
+        }
+        ImGui::Image(static_cast<ImTextureID>(renderer.texture_token()), size,
+                     ImVec2(0, 1), ImVec2(1, 0));
+        if (ImGui::IsItemHovered()) {
+          if (ImGui::IsMouseDragging(ImGuiMouseButton_Right))
+            editor.camera().Orbit(io.MouseDelta.x, io.MouseDelta.y);
+          if (ImGui::IsMouseDragging(ImGuiMouseButton_Middle))
+            editor.camera().Pan(io.MouseDelta.x, io.MouseDelta.y);
+          if (io.MouseWheel != 0) editor.camera().Zoom(io.MouseWheel);
+          if (!io.WantTextInput && ImGui::IsKeyPressed(ImGuiKey_F) &&
+              editor.selected())
+            editor.camera().Frame(*editor.selected());
+        }
+        auto* draw = ImGui::GetWindowDrawList();
+        draw->AddText(ImVec2(origin.x + 14, origin.y + 14),
+                      IM_COL32(155, 175, 184, 255), "WORLD / 01");
+        draw->AddText(ImVec2(origin.x + 14, origin.y + size.y - 26),
+                      IM_COL32(155, 175, 184, 255),
+                      "RMB orbit   MMB pan   Wheel zoom   F frame");
+        draw->AddCircleFilled(ImVec2(origin.x + size.x - 20, origin.y + 20), 4,
+                              IM_COL32(114, 193, 153, 255));
+      }
+    }
+    ImGui::End();
+  }
+  return true;
+}
+
+void DrawConsole(const EditorState& editor, PanelState& panels) {
+  if (panels.console) {
+    const bool shown = ImGui::Begin("Console", &panels.console);
+    ++panels.panels_drawn;
+    if (shown) {
+      DrawLabel("SESSION LOG");
+      ImGui::Separator();
+      ImGui::BeginChild("LogScroll", ImVec2(0, 0));
+      for (const auto& log : editor.logs()) {
+        ImGui::TextColored(log.level == "WARN" ? kAccent : kMuted, "[%s]",
+                           log.level.c_str());
+        ImGui::SameLine();
+        ImGui::TextWrapped("%s", log.message.c_str());
+      }
+      ImGui::EndChild();
+    }
+    ImGui::End();
+  }
+}
+
+void DrawAssets(EditorState& editor, PanelState& panels) {
+  if (panels.assets) {
+    const bool shown = ImGui::Begin("Assets", &panels.assets);
+    ++panels.panels_drawn;
+    if (shown) {
+      DrawLabel("BUILT-IN PRIMITIVES");
+      if (ImGui::Button("Cube\nAdd to scene", ImVec2(130, 65)))
+        editor.AddCube();
+      ImGui::SameLine();
+      ImGui::TextWrapped(
+          "File import and asset processing\nare planned for the Mesh "
+          "milestone.");
+    }
+    ImGui::End();
+  }
+}
+
+void DrawPerformance(const ViewportRenderer& renderer, PanelState& panels,
+                     const std::string& gpu) {
+  panels.frame_times[panels.frame_index++ % panels.frame_times.size()] =
+      ImGui::GetIO().DeltaTime * 1000;
+  if (panels.performance) {
+    const bool shown = ImGui::Begin("Performance", &panels.performance);
+    ++panels.panels_drawn;
+    if (shown) {
+      ImGui::TextColored(kAccent, "%.1f FPS", ImGui::GetIO().Framerate);
+      DrawLabel("CPU FRAME INTERVAL");
+      ImGui::PlotLines(
+          "##frames", panels.frame_times.data(),
+          static_cast<int>(panels.frame_times.size()),
+          static_cast<int>(panels.frame_index % panels.frame_times.size()),
+          nullptr, 0, 50, ImVec2(-1, 45));
+      ImGui::Text("Viewport %d x %d", renderer.width(), renderer.height());
+      ImGui::SameLine();
+      ImGui::Text("/ %u draws", renderer.draws());
+      ImGui::TextWrapped("%s", gpu.c_str());
+      DrawLabel("GPU timing is not implemented in this preview.");
+    }
+    ImGui::End();
+  }
+}
+}  // namespace
+
+bool DrawStudio(EditorState& editor, ViewportRenderer& renderer,
+                PanelState& panels, const std::string& gpu,
+                std::string* error) {
+  DrawHeader(editor, panels);
+  DrawDock(panels);
+  DrawScene(editor, panels);
+  DrawInspector(editor, panels);
+  if (!DrawViewport(editor, renderer, panels, error)) return false;
+  DrawConsole(editor, panels);
+  DrawAssets(editor, panels);
+  DrawPerformance(renderer, panels, gpu);
+  return true;
+}
+}  // namespace wf

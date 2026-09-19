@@ -4,6 +4,9 @@
 
 ## 当前文档
 
+- [C++ 编码规范](CODING_STYLE.md)：严格遵循 Google C++ Style Guide，含本地与 CI 检查。
+- [首轮代码 Review](reviews/0001-google-cpp-style.md)：本次问题与修复范围。
+
 - [构建与运行](DEVELOPMENT.md)：当前已验证的 Windows 框架、操作与限制。
 - [GUI 框架学习记录](learning/0001-gui-framework.md)：代码链路与实验。
 

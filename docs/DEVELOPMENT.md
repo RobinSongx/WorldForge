@@ -60,3 +60,7 @@ smoke 创建隐藏的实际 GL 上下文，运行 36 帧，检查非空视口、
 - src/studio：组合与主循环、smoke 验证，apps/studio 是入口。
 
 此处是可运行切片，不是完整架构全部模块的实现。下一步引入真实 Mesh 数据与导入任务，再以服务/快照替换示例状态与 renderer 的直接参数。
+
+## C++ 风格检查
+
+本仓库严格遵循 [Google C++ 规范](CODING_STYLE.md)。修改前阅读该文档，提交前运行 `build/python/Scripts/python.exe tools/check_style.py`；使用 --fix 自动格式化。

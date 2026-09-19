@@ -51,3 +51,16 @@ For packaging, GPU validation and architecture notes, see
 [Development](docs/DEVELOPMENT.md) and [Documentation index](docs/README.md).
 
 MIT license for project-owned code; see [third-party notices](THIRD_PARTY_NOTICES.md).
+
+## C++ coding standard
+
+All project-owned C++ **strictly follows the
+[Google C++ Style Guide](https://google.github.io/styleguide/cppguide.html)**.
+Read [Coding standard](docs/CODING_STYLE.md) before contributing. Formatting and
+cpplint checks are mandatory in Windows CI:
+
+```powershell
+build/python/Scripts/python.exe -m pip install -r tools/style-requirements.txt
+build/python/Scripts/python.exe tools/check_style.py --fix
+build/python/Scripts/python.exe tools/check_style.py
+```
