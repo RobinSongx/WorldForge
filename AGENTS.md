@@ -1,10 +1,11 @@
 # WorldForge repository instructions
 
 All project-owned C++ must strictly follow the
-[Google C++ Style Guide](https://google.github.io/styleguide/cppguide.html).
+[Google C++ Style Guide](https://google.github.io/styleguide/cppguide.html),
+with the user-approved filename exception: source files use .cpp, not .cc.
 Read [docs/CODING_STYLE.md](docs/CODING_STYLE.md) before changing C++.
 
-- Use C++20, lowercase snake_case `.cc` / `.h` filenames, Google names,
+- Use C++20, lowercase snake_case `.cpp` / `.h` filenames, Google names,
   self-contained headers and `WORLDFORGE_<REPOSITORY_PATH>_H_` guards.
 - Use the pinned clang-format Google preset and cpplint. Do not weaken rules
   to make a change pass. Third-party source and generated code retain upstream

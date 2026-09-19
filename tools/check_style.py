@@ -40,8 +40,8 @@ def main():
     if not files:
         parser.error("No project C++ files found")
     for path in files:
-        if not re.fullmatch(r"[a-z][a-z0-9_]*\.(cc|h)", path.name):
-            parser.error(f"Use lowercase snake_case .cc/.h filenames: {path}")
+        if not re.fullmatch(r"[a-z][a-z0-9_]*\.(cpp|h)", path.name):
+            parser.error(f"Use lowercase snake_case .cpp/.h filenames: {path}")
 
     executable = Path(sysconfig.get_path("scripts")) / (
         "clang-format.exe" if sys.platform == "win32" else "clang-format"

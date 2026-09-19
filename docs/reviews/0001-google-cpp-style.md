@@ -22,3 +22,7 @@ README、AGENTS.md、CODING_STYLE.md 声明统一规范；.clang-format、.edito
 固定版本 clang-format/cpplint、Windows Release 构建、CPU 测试以及正常 GPU smoke 均已通过。
 已验证中文输出目录的 GPU smoke 成功（退出码 0，六个面板、缩放、变换、相机输入通过，GL 错误为 0）；输出目录被文件占用、报告文件不可写均正确失败（退出码 1）。
 结果以实际执行记录为准；静态检查不替代人工语义 Review。
+
+## 后续扩展名调整
+
+按项目所有者偏好，源文件由 .cc 统一改为 .cpp；该例外已记录在 CODING_STYLE.md，构建、编辑器与检查脚本同步更新，其余 Google 规范继续执行。

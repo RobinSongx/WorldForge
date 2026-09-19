@@ -55,7 +55,8 @@ MIT license for project-owned code; see [third-party notices](THIRD_PARTY_NOTICE
 ## C++ coding standard
 
 All project-owned C++ **strictly follows the
-[Google C++ Style Guide](https://google.github.io/styleguide/cppguide.html)**.
+[Google C++ Style Guide](https://google.github.io/styleguide/cppguide.html)**,
+with one project filename exception: source files use `.cpp` instead of `.cc`.
 Read [Coding standard](docs/CODING_STYLE.md) before contributing. Formatting and
 cpplint checks are mandatory in Windows CI:
 

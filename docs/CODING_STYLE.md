@@ -4,13 +4,17 @@
 这同时约束格式、命名、头文件、接口、资源管理和语言特性，不能只以格式化通过作为合规证明。
 本次对照日期：2026-09-19；语言标准为 C++20。
 
+## 项目扩展名例外
+
+按项目所有者的明确偏好，自有 C++ 源文件统一使用 .cpp，头文件使用 .h；这是对 Google 指南 .cc 约定的明确例外。其余规范要求保持不变。构建文件、编辑器配置和 CI 文件名检查同步采用 .cpp，禁止混用 .cc。
+
 ## 适用范围
 
 适用于 apps/、src/、tests/ 及以后加入的自有 C++ 代码。第三方依赖、自动生成文件和构建产物保留上游规范，不对其批量改写；嵌入的 GLSL 依照其语言规则保持可读。
 
 ## 必须遵守
 
-- 文件使用 lowercase_snake_case.cc / .h；类型使用 UpperCamelCase，普通函数使用 UpperCamelCase，访问器可使用 snake_case。
+- 文件使用 lowercase_snake_case.cpp / .h；类型使用 UpperCamelCase，普通函数使用 UpperCamelCase，访问器可使用 snake_case。
 - 变量和参数使用 snake_case；class 数据成员为 private 且带尾部下划线；struct 仅承载无不变量的被动数据；常量使用 kUpperCamelCase。
 - 两空格缩进，默认 80 列；具体格式以固定版本 clang-format 的 Google preset 为准。一行一条语句，一条声明一个变量。
 - 头文件自包含，使用 WORLDFORGE_<仓库相对路径>_H_ include guard，不使用 pragma once。
