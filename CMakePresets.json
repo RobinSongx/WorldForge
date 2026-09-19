@@ -1,0 +1,31 @@
+{
+  "version": 6,
+  "cmakeMinimumRequired": {"major": 3, "minor": 25, "patch": 0},
+  "configurePresets": [
+    {
+      "name": "windows", "displayName": "Windows Studio (VS 2026)",
+      "generator": "Visual Studio 18 2026", "architecture": "x64",
+      "binaryDir": "${sourceDir}/build/windows",
+      "cacheVariables": {"WF_BUILD_STUDIO": "ON", "WF_BUILD_TESTS": "ON"}
+    },
+    {
+      "name": "windows-vs2022", "inherits": "windows",
+      "displayName": "Windows Studio (VS 2022)",
+      "generator": "Visual Studio 17 2022", "binaryDir": "${sourceDir}/build/vs2022"
+    },
+    {
+      "name": "cpu-only", "inherits": "windows", "binaryDir": "${sourceDir}/build/cpu",
+      "cacheVariables": {"WF_BUILD_STUDIO": "OFF"}
+    }
+  ],
+  "buildPresets": [
+    {"name": "windows-release", "configurePreset": "windows", "configuration": "Release"},
+    {"name": "windows-debug", "configurePreset": "windows", "configuration": "Debug"},
+    {"name": "vs2022-release", "configurePreset": "windows-vs2022", "configuration": "Release"},
+    {"name": "cpu-only", "configurePreset": "cpu-only", "configuration": "Release"}
+  ],
+  "testPresets": [
+    {"name": "windows-release", "configurePreset": "windows", "configuration": "Release", "output": {"outputOnFailure": true}},
+    {"name": "cpu-only", "configurePreset": "cpu-only", "configuration": "Release", "output": {"outputOnFailure": true}}
+  ]
+}
