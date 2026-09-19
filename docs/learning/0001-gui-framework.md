@@ -25,6 +25,6 @@ CPU 场景/相机测试；Release 编译；GPU smoke 的画面读回、resize、
 2. 增加多个 cube，再删除所选，确认 Inspector 没有指向旧对象。
 3. 缩小/放大 Viewport，观察 Performance 的像素尺寸。
 4. 打开 Wireframe，观察 cube 由 12 个三角形组成；关闭 Grid 对比 draw 数。
-5. 阅读 ViewportRenderer::render，解释为何先绑定 FBO、最后返回默认 framebuffer。
+5. 阅读 ViewportRenderer::Render，解释为何先绑定 FBO、最后返回默认 framebuffer。
 
 下一节围绕真正的 MeshAsset 与 GLB 导入展开。当前没有项目保存、PBR 或 Gaussian。
