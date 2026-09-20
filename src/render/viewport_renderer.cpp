@@ -5,14 +5,20 @@
 
 #include <algorithm>
 #include <cstddef>
+#include <cstdint>
+#include <map>
+#include <memory>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include "glad/gl.h"
 #include "glm/glm.hpp"
 #include "glm/gtc/type_ptr.hpp"
 
-#include "editor/editor_state.h"
+#include "domain/imported_scene.h"
+#include "domain/mesh_asset.h"
+#include "domain/render_scene.h"
 
 namespace wf {
 namespace {
@@ -86,6 +92,117 @@ void CreateMesh(unsigned int& vao, unsigned int& vbo,
 }
 }  // namespace
 
+// GPU 缓存只弱引用 CPU Mesh；最后一个场景引用消失后可回收。
+// The GPU cache weakly references CPU meshes, allowing last-user collection.
+class ViewportRenderer::GpuMesh {
+ public:
+  struct Primitive {
+    unsigned int vao = 0;
+    unsigned int vbo = 0;
+    unsigned int ebo = 0;
+    int count = 0;
+  };
+
+  explicit GpuMesh(const std::shared_ptr<const MeshAsset>& asset)
+      : owner_(asset) {}
+
+  GpuMesh(const GpuMesh&) = delete;
+  GpuMesh& operator=(const GpuMesh&) = delete;
+
+  ~GpuMesh() {
+    for (const auto& primitive : primitives_) {
+      glDeleteBuffers(1, &primitive.ebo);
+      glDeleteBuffers(1, &primitive.vbo);
+      glDeleteVertexArrays(1, &primitive.vao);
+    }
+  }
+
+  bool Upload(const MeshAsset& mesh, std::string* error) {
+    if (glGetError() != GL_NO_ERROR) {
+      *error = "Existing GL error before mesh upload";
+      return false;
+    }
+    for (const auto& source : mesh.primitives) {
+      primitives_.emplace_back();
+      auto& primitive = primitives_.back();
+      glGenVertexArrays(1, &primitive.vao);
+      glGenBuffers(1, &primitive.vbo);
+      glGenBuffers(1, &primitive.ebo);
+      glBindVertexArray(primitive.vao);
+      glBindBuffer(GL_ARRAY_BUFFER, primitive.vbo);
+      const auto vertex_bytes = source.vertices.size() * sizeof(MeshVertex);
+      const auto index_bytes = source.indices.size() * sizeof(std::uint32_t);
+      glBufferData(GL_ARRAY_BUFFER, static_cast<GLsizeiptr>(vertex_bytes),
+                   source.vertices.data(), GL_STATIC_DRAW);
+      glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, primitive.ebo);
+      glBufferData(GL_ELEMENT_ARRAY_BUFFER,
+                   static_cast<GLsizeiptr>(index_bytes), source.indices.data(),
+                   GL_STATIC_DRAW);
+      glEnableVertexAttribArray(0);
+      glVertexAttribPointer(
+          0, 3, GL_FLOAT, GL_FALSE, sizeof(MeshVertex),
+          reinterpret_cast<void*>(offsetof(MeshVertex, position)));
+      glEnableVertexAttribArray(1);
+      glVertexAttribPointer(
+          1, 3, GL_FLOAT, GL_FALSE, sizeof(MeshVertex),
+          reinterpret_cast<void*>(offsetof(MeshVertex, normal)));
+      glEnableVertexAttribArray(2);
+      glVertexAttribPointer(2, 2, GL_FLOAT, GL_FALSE, sizeof(MeshVertex),
+                            reinterpret_cast<void*>(offsetof(MeshVertex, uv)));
+      primitive.count = static_cast<int>(source.indices.size());
+      bytes_ += vertex_bytes + index_bytes;
+      const auto gl_error = glGetError();
+      glBindVertexArray(0);
+      if (gl_error != GL_NO_ERROR || !primitive.vao || !primitive.vbo ||
+          !primitive.ebo) {
+        *error = "Mesh upload failed, GL error " + std::to_string(gl_error);
+        return false;
+      }
+    }
+    return true;
+  }
+
+  bool expired() const { return owner_.expired(); }
+
+  std::size_t bytes() const { return bytes_; }
+
+  const std::vector<Primitive>& primitives() const { return primitives_; }
+
+ private:
+  std::weak_ptr<const MeshAsset> owner_;
+  std::vector<Primitive> primitives_;
+  std::size_t bytes_ = 0;
+};
+
+ViewportRenderer::ViewportRenderer() = default;
+
+bool ViewportRenderer::Prepare(const ImportedScene& scene, std::string* error) {
+  std::map<std::uint64_t, std::unique_ptr<GpuMesh>> staged;
+  for (const auto& asset : scene.meshes) {
+    if (meshes_.contains(asset->id) || staged.contains(asset->id)) continue;
+    auto mesh = std::make_unique<GpuMesh>(asset);
+    if (!mesh->Upload(*asset, error)) return false;
+    staged.emplace(asset->id, std::move(mesh));
+  }
+  meshes_.merge(staged);
+  return true;
+}
+
+void ViewportRenderer::CollectUnused() {
+  for (auto it = meshes_.begin(); it != meshes_.end();) {
+    if (it->second->expired())
+      it = meshes_.erase(it);
+    else
+      ++it;
+  }
+}
+
+std::size_t ViewportRenderer::gpu_bytes() const {
+  std::size_t total = 0;
+  for (const auto& entry : meshes_) total += entry.second->bytes();
+  return total;
+}
+
 bool ViewportRenderer::Initialize(std::string* error) {
   const auto vs = CompileShader(GL_VERTEX_SHADER, kVertexSource, error);
   if (!vs) return false;
@@ -110,34 +227,6 @@ bool ViewportRenderer::Initialize(std::string* error) {
     *error = message;
     return false;
   }
-  // 各面分别存储顶点与法线，让 Cube 保持硬边。
-  // Stores per-face vertices and normals to preserve hard cube edges.
-  std::vector<float> cube;
-  const glm::vec3 normals[] = {{1, 0, 0},  {-1, 0, 0}, {0, 1, 0},
-                               {0, -1, 0}, {0, 0, 1},  {0, 0, -1}};
-  const glm::vec3 corners[][4] = {
-      {{.5f, -.5f, -.5f}, {.5f, .5f, -.5f}, {.5f, .5f, .5f}, {.5f, -.5f, .5f}},
-      {{-.5f, -.5f, .5f},
-       {-.5f, .5f, .5f},
-       {-.5f, .5f, -.5f},
-       {-.5f, -.5f, -.5f}},
-      {{-.5f, .5f, -.5f}, {-.5f, .5f, .5f}, {.5f, .5f, .5f}, {.5f, .5f, -.5f}},
-      {{-.5f, -.5f, .5f},
-       {-.5f, -.5f, -.5f},
-       {.5f, -.5f, -.5f},
-       {.5f, -.5f, .5f}},
-      {{-.5f, -.5f, .5f}, {.5f, -.5f, .5f}, {.5f, .5f, .5f}, {-.5f, .5f, .5f}},
-      {{.5f, -.5f, -.5f},
-       {-.5f, -.5f, -.5f},
-       {-.5f, .5f, -.5f},
-       {.5f, .5f, -.5f}}};
-  for (int face = 0; face < 6; ++face)
-    for (int index : {0, 1, 2, 0, 2, 3}) {
-      const auto p = corners[face][index];
-      const auto n = normals[face];
-      cube.insert(cube.end(), {p.x, p.y, p.z, n.x, n.y, n.z});
-    }
-  CreateMesh(vao_, vbo_, cube);
   std::vector<float> grid;
   auto point = [&grid](float x, float z) {
     grid.insert(grid.end(), {x, 0, z, 0, 1, 0});
@@ -158,9 +247,7 @@ ViewportRenderer::~ViewportRenderer() {
   glDeleteFramebuffers(1, &fbo_);
   glDeleteTextures(1, &color_);
   glDeleteRenderbuffers(1, &depth_);
-  glDeleteBuffers(1, &vbo_);
   glDeleteBuffers(1, &grid_vbo_);
-  glDeleteVertexArrays(1, &vao_);
   glDeleteVertexArrays(1, &grid_vao_);
   glDeleteProgram(program_);
 }
@@ -203,8 +290,12 @@ bool ViewportRenderer::Resize(int w, int h, std::string* error) {
   return true;
 }
 
-bool ViewportRenderer::Render(const EditorState& state, int w, int h,
+bool ViewportRenderer::Render(const RenderScene& scene, int w, int h,
                               std::string* error) {
+  CollectUnused();
+  ImportedScene pending;
+  for (const auto& draw : scene.meshes) pending.meshes.push_back(draw.mesh);
+  if (!Prepare(pending, error)) return false;
   if (!Resize(w, h, error)) return false;
   draws_ = 0;
   glBindFramebuffer(GL_FRAMEBUFFER, fbo_);
@@ -219,13 +310,11 @@ bool ViewportRenderer::Render(const EditorState& state, int w, int h,
   glClearColor(0.055f, 0.071f, 0.084f, 1);
   glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
   glUseProgram(program_);
-  const auto vp =
-      state.camera().Projection(static_cast<float>(width_) / height_) *
-      state.camera().View();
+  const auto& vp = scene.view_projection;
   const auto identity = glm::mat4(1);
   glUniformMatrix4fv(glGetUniformLocation(program_, "uViewProjection"), 1,
                      GL_FALSE, glm::value_ptr(vp));
-  if (state.display_options().grid) {
+  if (scene.grid) {
     glUniformMatrix4fv(glGetUniformLocation(program_, "uModel"), 1, GL_FALSE,
                        glm::value_ptr(identity));
     glUniform3f(glGetUniformLocation(program_, "uColor"), .16f, .20f, .23f);
@@ -234,33 +323,36 @@ bool ViewportRenderer::Render(const EditorState& state, int w, int h,
     glDrawArrays(GL_LINES, 0, grid_count_);
     ++draws_;
   }
-  glBindVertexArray(vao_);
   glUniform1i(glGetUniformLocation(program_, "uUnlit"), 0);
-  for (const auto& e : state.entities())
-    if (e.visible) {
-      const auto model = e.transform.Matrix();
-      glUniformMatrix4fv(glGetUniformLocation(program_, "uModel"), 1, GL_FALSE,
-                         glm::value_ptr(model));
+  glDisable(GL_CULL_FACE);
+  for (const auto& draw : scene.meshes) {
+    const auto& gpu = *meshes_.at(draw.mesh->id);
+    glUniformMatrix4fv(glGetUniformLocation(program_, "uModel"), 1, GL_FALSE,
+                       glm::value_ptr(draw.model));
+    for (std::size_t i = 0; i < gpu.primitives().size(); ++i) {
+      const auto& primitive = gpu.primitives()[i];
+      const auto color = draw.tint * draw.mesh->primitives[i].base_color;
       glUniform3fv(glGetUniformLocation(program_, "uColor"), 1,
-                   glm::value_ptr(e.color));
-      glPolygonMode(GL_FRONT_AND_BACK,
-                    state.display_options().wireframe ? GL_LINE : GL_FILL);
-      glDrawArrays(GL_TRIANGLES, 0, 36);
+                   glm::value_ptr(color));
+      glBindVertexArray(primitive.vao);
+      glPolygonMode(GL_FRONT_AND_BACK, scene.wireframe ? GL_LINE : GL_FILL);
+      glDrawElements(GL_TRIANGLES, primitive.count, GL_UNSIGNED_INT, nullptr);
       ++draws_;
-      if (state.selection() == e.id && !state.display_options().wireframe) {
-        // 轻微前移选中线框的深度，减少与同一表面填充三角形的深度冲突。
-        // Offsets selection lines toward the viewer to reduce z-fighting.
+      if (draw.selected && !scene.wireframe) {
+        // 轻微前移线框深度，避免与填充三角形重叠闪烁。
+        // Offsets selection lines to avoid z-fighting with filled triangles.
         glEnable(GL_POLYGON_OFFSET_LINE);
         glPolygonOffset(-1, -1);
         glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
         glUniform1i(glGetUniformLocation(program_, "uUnlit"), 1);
         glUniform3f(glGetUniformLocation(program_, "uColor"), .95f, .73f, .38f);
-        glDrawArrays(GL_TRIANGLES, 0, 36);
+        glDrawElements(GL_TRIANGLES, primitive.count, GL_UNSIGNED_INT, nullptr);
         ++draws_;
         glDisable(GL_POLYGON_OFFSET_LINE);
         glUniform1i(glGetUniformLocation(program_, "uUnlit"), 0);
       }
     }
+  }
   // 恢复填充模式与默认 framebuffer，供后续 ImGui 合成使用。
   // Restores fill mode and the default framebuffer for ImGui composition.
   glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
@@ -277,8 +369,8 @@ bool ViewportRenderer::HasRenderedContent() const {
   glBindFramebuffer(GL_READ_FRAMEBUFFER, fbo_);
   glReadPixels(0, 0, width_, height_, GL_RGBA, GL_UNSIGNED_BYTE, pixels.data());
   glBindFramebuffer(GL_READ_FRAMEBUFFER, 0);
-  // 针对本测试的暖色 Cube 检查非背景像素，并非通用图像正确性判断。
-  // Detects warm cube pixels in this fixture, not general image correctness.
+  // 检查比背景更亮的像素；测试另行核对绘制资产和资源计数。
+  // Checks brighter pixels; tests separately assert asset identity and counts.
   size_t colored{};
   for (size_t i = 0; i < pixels.size(); i += 4)
     if (pixels[i] > 70 && pixels[i + 1] > 40) ++colored;

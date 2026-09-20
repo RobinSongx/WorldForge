@@ -21,6 +21,10 @@ struct PanelState {
   bool assets = true;
   bool reset_layout = false;
   bool quit_requested = false;
+  bool import_requested = false;
+  bool import_busy = false;
+  std::string import_status = "Ready to import a static GLB";
+  std::string import_metrics;
   std::array<float, 120> frame_times{};
   unsigned int frame_index{};
   unsigned int panels_drawn{};

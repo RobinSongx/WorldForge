@@ -5,12 +5,18 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstdint>
+#include <memory>
 #include <string>
 #include <utility>
 #include <vector>
 
 #include "glm/glm.hpp"
 #include "glm/gtc/matrix_transform.hpp"
+
+#include "domain/imported_scene.h"
+#include "domain/mesh_asset.h"
+#include "domain/render_scene.h"
 
 namespace wf {
 glm::mat4 Transform::Matrix() const {
@@ -34,8 +40,9 @@ glm::mat4 OrbitCamera::View() const {
 }
 
 glm::mat4 OrbitCamera::Projection(float aspect) const {
-  return glm::perspective(glm::radians(45.0f), std::max(aspect, 0.01f), 0.05f,
-                          500.0f);
+  return glm::perspective(glm::radians(45.0f), std::max(aspect, 0.01f),
+                          std::max(0.0001f, distance_ * 0.0001f),
+                          std::max(500.0f, distance_ + radius_ * 4));
 }
 
 void OrbitCamera::Orbit(float dx, float dy) {
@@ -57,23 +64,35 @@ void OrbitCamera::Pan(float dx, float dy) {
 void OrbitCamera::Zoom(float amount) {
   // 指数缩放使滚轮改变距离比例，限制范围以保持可用视距。
   // Exponential zoom changes distance proportionally within usable limits.
-  distance_ = std::clamp(distance_ * std::exp(-amount * 0.15f), 0.2f, 200.0f);
-}
-
-void OrbitCamera::Frame(const Entity& entity) {
-  // 当前以单位 Cube 的缩放估算取景距离；真实 Mesh 需使用包围盒。
-  // Estimates framing from unit-cube scale; real meshes need bounds.
-  target_ = entity.transform.position;
   distance_ =
-      std::clamp(glm::length(entity.transform.scale) * 2.0f, 1.5f, 200.0f);
+      std::clamp(distance_ * std::exp(-amount * 0.15f), 0.0001f, 1.0e15f);
 }
 
-EditorState::EditorState() { NewScene(); }
+void OrbitCamera::Frame(const Entity& entity, float aspect) {
+  // 包装根变换后合并八角包围盒；保持源资产的原点和尺寸不变。
+  // Frames transformed bounds without changing the source origin or scale.
+  if (!entity.asset) return;
+  const auto bounds =
+      entity.asset->bounds.Transformed(entity.transform.Matrix());
+  if (!bounds.valid) return;
+  target_ = bounds.min * 0.5f + bounds.max * 0.5f;
+  radius_ = std::max(glm::length(bounds.max - bounds.min) * 0.5f, 0.0001f);
+  // 窄视口使用水平视角，确保整个包围球落入画面。
+  // Uses the horizontal angle in narrow viewports to fit the bounding sphere.
+  const float angle = std::atan(std::tan(glm::radians(22.5f)) *
+                                std::clamp(aspect, 0.01f, 1.0f));
+  distance_ = radius_ * 1.1f / std::sin(angle);
+}
+
+EditorState::EditorState() : cube_asset_(MakeCubeScene()) { NewScene(); }
 
 EntityId EditorState::AddCube() {
   // ID 与容器下标分离，删除或重建场景不会复用旧 ID。
   // Monotonic IDs stay independent of vector indices across scene resets.
-  Entity e{next_id_++, "Cube"};
+  Entity e{};
+  e.id = next_id_++;
+  e.name = "Cube";
+  e.asset = cube_asset_;
   e.name += " " + std::to_string(e.id);
   e.transform.position = {static_cast<float>(entities_.size()) * 1.4f, 0.5f,
                           0.0f};
@@ -81,6 +100,37 @@ EntityId EditorState::AddCube() {
   entities_.push_back(e);
   Log("INFO", "Created " + e.name);
   return e.id;
+}
+
+EntityId EditorState::AddImported(std::string name,
+                                  std::shared_ptr<const ImportedScene> asset) {
+  Entity entity{};
+  entity.id = next_id_++;
+  entity.name = std::move(name);
+  entity.asset = std::move(asset);
+  entity.color = glm::vec3(1);
+  selection_ = entity.id;
+  entities_.push_back(std::move(entity));
+  camera_.Frame(entities_.back());
+  Log("INFO", "Imported " + entities_.back().name);
+  return entities_.back().id;
+}
+
+RenderScene EditorState::BuildRenderScene(float aspect) const {
+  RenderScene scene;
+  scene.view_projection = camera_.Projection(aspect) * camera_.View();
+  scene.grid = display_options_.grid;
+  scene.wireframe = display_options_.wireframe;
+  for (const auto& entity : entities_) {
+    if (!entity.visible || !entity.asset) continue;
+    for (const auto& node : entity.asset->nodes) {
+      if (!node.active || node.mesh < 0) continue;
+      scene.meshes.push_back({entity.asset->meshes[node.mesh],
+                              entity.transform.Matrix() * node.world,
+                              entity.color, selection_ == entity.id});
+    }
+  }
+  return scene;
 }
 
 bool EditorState::RemoveSelected() {
@@ -126,7 +176,8 @@ bool EditorState::SetTransform(EntityId id, const Transform& value) {
     if (!std::isfinite(value.position[i]) ||
         !std::isfinite(value.rotation_degrees[i]) ||
         !std::isfinite(value.scale[i]) || value.scale[i] < 0.01f ||
-        value.scale[i] > 100.0f)
+        value.scale[i] > 100.0f || std::abs(value.position[i]) > 1.0e12f ||
+        std::abs(value.rotation_degrees[i]) > 1.0e6f)
       return false;
   }
   for (auto& e : entities_)
@@ -138,12 +189,12 @@ bool EditorState::SetTransform(EntityId id, const Transform& value) {
 }
 
 void EditorState::NewScene() {
+  ++generation_;
   entities_.clear();
   selection_.reset();
   camera_ = OrbitCamera{};
   AddCube();
-  Log("INFO",
-      "New procedural scene. File import arrives in the Mesh milestone.");
+  Log("INFO", "New scene. Import a static GLB from File > Import GLB.");
 }
 
 void EditorState::Log(std::string level, std::string message) {

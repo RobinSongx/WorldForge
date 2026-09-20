@@ -14,7 +14,10 @@ namespace wf {
 // Runs until close or smoke completion; output is a UTF-8 test directory.
 // Returns 0 on success, 1 on setup/render/I/O failure, 2 on smoke failure.
 // Requires a non-null error output for failure diagnostics.
-int RunStudio(bool smoke_test, const std::string& output, std::string* error);
+// mesh_path 非空时，冒烟测试通过真实后台链路导入指定 GLB。
+// A nonempty mesh_path imports a GLB through the real background smoke path.
+int RunStudio(bool smoke_test, const std::string& output, std::string* error,
+              const std::string& mesh_path = {});
 
 }  // namespace wf
 

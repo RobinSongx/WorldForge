@@ -1,6 +1,12 @@
 # WorldForge 软件架构
 
-日期：2026-09-19。状态：按 Windows 优先重新分期的架构基线，P0 框架已有可运行切片，完整架构尚未实现。当前范围以 ROADMAP、PHASE_1、ADR 0003 为准；本文后续接口不代表首期需要全部实现。
+日期：2026-09-20。状态：按 Windows 优先重新分期的架构基线，P0 框架与 P1.1 静态 Mesh 导入已有可运行切片，完整架构尚未实现。当前范围以 ROADMAP、PHASE_1、ADR 0003 为准；本文后续接口不代表首期需要全部实现。
+
+## 已落地的 P1.1 切片
+
+当前真实 target 为 wf_domain、wf_import、wf_editor、wf_renderer、wf_platform、wf_imgui 和 worldforge-studio。wf_import 暂合并内存 GLB 适配器与单任务服务；Renderer 已消费只读 RenderScene，不依赖 EditorState。业务 ID 仍为会话内整数，未实现持久 UUID、Command/Undo、项目锁或保存。预览直接使用 GLM OpenGL 投影和基础漫反射，尚未实现下文的统一深度/HDR/PBR 契约。
+
+文件选择 → UTF-8 读取 → 工作线程解析 → 主线程检查代次/上传 → 发布包装根；Mesh/节点不可变共享，源矩阵与实例保留。具体所有权、支持限制及验证见 [P1.1 实现说明](learning/0002-mesh-import.md)。下文描述目标架构，不应把接口草案视为已交付能力。
 
 ## 1. 设计输入与关键决策
 
@@ -11,7 +17,7 @@
 | 桌面 | Windows 11 x64、C++20/MSVC/CMake、SDL3、ImGui docking |
 | 渲染 | Windows OpenGL 4.5 / GLSL 450；最小资源接口，不先实现完整多后端引擎 |
 | Gaussian | Windows/NVIDIA CUDA provider 优先；非 CUDA 路径与其他平台以后实现 |
-| 业务复用 | 当前 GUI 通过 Service/Command；未来 CLI/HTTP 复用，不要求首期完成协议注册 |
+| 业务复用 | 目标 GUI 通过 Service/Command；未来 CLI/HTTP 复用，不要求首期完成协议注册 |
 | 场景 | 自有轻量模型，Visual/Collision/Semantic 分离；项目包先闭环，USD adapter 后续 |
 | 扩展 | 源码 addons、Dawn/WebGPU、Web UI 和多平台均不作为首发前提 |
 
@@ -130,7 +136,7 @@ DTO 包括 AssetDTO、EntityDTO、SceneDTO、ValidationReport、JobDTO、Benchma
 
 v0.1 一个场景一个串行写入者；远程阶段仍由该写入者顺序处理命令。`expectedRevision` 不符返回 Conflict，客户端刷新重试，不覆盖他人新状态。远程请求使用 requestId 去重，未来服务端持久化收据；不承诺多用户协同编辑或 CRDT。
 
-当前 Studio 使用项目独占锁避免多个实例同时写入。跨进程 requestId、幂等收据与 CLI 重试语义推迟到 P4；不为未来协议阻塞桌面编辑与保存。
+项目保存阶段的 Studio 将使用项目独占锁避免多个实例同时写入。跨进程 requestId、幂等收据与 CLI 重试语义推迟到 P4；不为未来协议阻塞桌面编辑与保存。
 
 ### 4.3 后期 CLI 与 Addons
 
@@ -244,7 +250,7 @@ C++ 与 TS 共享 JSON 契约测试样例，不共享内部 struct 二进制布�
 
 C++20、CMake target-based 配置、FetchContent 固定提交/hash；GLAD 使用 GL 4.5，JSON 使用 nlohmann/json、测试使用 Catch2。准确依赖 pin 随首次可编译工程提交记录。
 
-当前开关：`WF_BUILD_STUDIO=ON`、`WF_BUILD_TESTS=ON`、`WF_ENABLE_CUDA=OFF`；P2 增加 CUDA 构建配置及 NVIDIA 发布配置。关闭 CUDA 不影响 Mesh Studio。当前不创建 CLI/USD 构建目标，分别在 P4 使用时增加。
+当前开关：`WF_BUILD_STUDIO=ON`、`WF_BUILD_TESTS=ON`、`WF_ENABLE_GPU_TESTS=OFF`；CUDA 开关尚未实现；P2 增加 CUDA 构建配置及 NVIDIA 发布配置。关闭 CUDA 不影响 Mesh Studio。当前不创建 CLI/USD 构建目标，分别在 P4 使用时增加。
 
 | 环境/能力 | 当前义务 | 后续义务 |
 | --- | --- | --- |
@@ -280,4 +286,4 @@ P0/P1 开始观测帧时、资源和上传；P2 增加 GPU pass/排序/合成计
 | 多平台后做 | 第 6、9 节 | P6 各平台独立运行验证 |
 | 保留插件/Web 演进 | 第 4.3、8 节 | P5/P7 实施时验收 |
 
-ADR 0001/0002 是历史方案，排期与平台门槛被 [ADR 0003](decisions/0003-windows-world-first.md)覆盖。开源参考见 [REFERENCES](REFERENCES.md)。当前 P0 框架的实现与验证记录见 DEVELOPMENT.md；本文其余架构能力仍待实现。
+ADR 0001/0002 是历史方案，排期与平台门槛被 [ADR 0003](decisions/0003-windows-world-first.md)覆盖。开源参考见 [REFERENCES](REFERENCES.md)。当前 P0/P1.1 的实现与验证记录见 DEVELOPMENT.md 及 P1.1 实现说明；本文其余架构能力仍待实现。

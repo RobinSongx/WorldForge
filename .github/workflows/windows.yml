@@ -22,6 +22,6 @@ jobs:
         run: cmake --install build/vs2022 --config Release --prefix out/WorldForge
       - uses: actions/upload-artifact@v4
         with:
-          name: WorldForge-Windows-framework
+          name: WorldForge-Windows-mesh-preview
           path: out/WorldForge
       # Hosted Windows runners do not promise OpenGL 4.5. GPU validation is local.

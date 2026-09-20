@@ -5,11 +5,15 @@
 #define WORLDFORGE_SRC_EDITOR_EDITOR_STATE_H_
 
 #include <cstdint>
+#include <memory>
 #include <optional>
 #include <string>
 #include <vector>
 
 #include "glm/glm.hpp"
+
+#include "domain/imported_scene.h"
+#include "domain/render_scene.h"
 
 namespace wf {
 
@@ -30,6 +34,7 @@ struct Entity {
   Transform transform;
   glm::vec3 color{0.77f, 0.57f, 0.29f};
   bool visible = true;
+  std::shared_ptr<const ImportedScene> asset;
 };
 
 // 绕目标点旋转的相机；内部角度为弧度，拖动增量为逻辑像素。
@@ -48,7 +53,7 @@ class OrbitCamera {
 
   void Zoom(float amount);
 
-  void Frame(const Entity& entity);
+  void Frame(const Entity& entity, float aspect = 1.0f);
 
   const glm::vec3& target() const { return target_; }
 
@@ -63,6 +68,7 @@ class OrbitCamera {
   float yaw_ = 0.7f;
   float pitch_ = 0.42f;
   float distance_ = 7.0f;
+  float radius_ = 1.0f;
 };
 
 struct LogEntry {
@@ -83,6 +89,15 @@ class EditorState {
   EditorState();
 
   EntityId AddCube();
+
+  // asset 必须是已校验且已完成 GPU 准备的不可变结果；仅主线程调用。
+  // Main thread only; asset must be validated, immutable and GPU-prepared.
+  EntityId AddImported(std::string name,
+                       std::shared_ptr<const ImportedScene> asset);
+
+  RenderScene BuildRenderScene(float aspect) const;
+
+  std::uint64_t generation() const { return generation_; }
 
   bool RemoveSelected();
 
@@ -121,6 +136,8 @@ class EditorState {
   std::vector<LogEntry> logs_;
   std::optional<EntityId> selection_;
   EntityId next_id_ = 1;
+  std::uint64_t generation_ = 0;
+  std::shared_ptr<const ImportedScene> cube_asset_;
   OrbitCamera camera_;
   DisplayOptions display_options_;
 };

@@ -5,6 +5,7 @@
 
 #include <algorithm>
 #include <string>
+#include <vector>
 
 #include "glm/gtc/type_ptr.hpp"
 // 上游根目录公共头文件；仅豁免这一处路径检查。
@@ -14,6 +15,7 @@
 // Upstream header for DockBuilder APIs; its path is defined upstream.
 #include "imgui_internal.h"  // NOLINT(build/include_subdir)
 
+#include "domain/imported_scene.h"
 #include "editor/editor_state.h"
 #include "render/viewport_renderer.h"
 
@@ -54,6 +56,8 @@ void DrawHeader(EditorState& editor, PanelState& panels) {
   ImGui::TextColored(kAccent, "W O R L D F O R G E");
   ImGui::Dummy({14, 0});
   if (ImGui::BeginMenu("File")) {
+    if (ImGui::MenuItem("Import GLB...", nullptr, false, !panels.import_busy))
+      panels.import_requested = true;
     if (ImGui::MenuItem("Exit")) panels.quit_requested = true;
     ImGui::EndMenu();
   }
@@ -73,7 +77,7 @@ void DrawHeader(EditorState& editor, PanelState& panels) {
     if (ImGui::MenuItem("Reset layout")) panels.reset_layout = true;
     ImGui::EndMenu();
   }
-  const char* status = "WINDOWS / FRAMEWORK PREVIEW";
+  const char* status = "WINDOWS / MESH PREVIEW";
   const float status_width = ImGui::CalcTextSize(status).x;
   if (ImGui::GetWindowWidth() > ImGui::GetCursorPosX() + status_width + 30) {
     ImGui::SameLine(ImGui::GetWindowWidth() - status_width - 40);
@@ -156,6 +160,32 @@ void DrawDock(PanelState& panels) {
   panels.panels_drawn = 0;
 }
 
+// 仅展开源节点；所有可编辑变换都位于模型包装根上。
+// Expands source nodes read-only; editable transforms belong to the wrapper.
+void DrawImportedNodes(const ImportedScene& asset) {
+  std::vector<int> pending(asset.roots.rbegin(), asset.roots.rend());
+  while (!pending.empty()) {
+    const int index = pending.back();
+    pending.pop_back();
+    if (index == -1) {
+      ImGui::TreePop();
+      continue;
+    }
+    const auto& node = asset.nodes[index];
+    ImGuiTreeNodeFlags flags = ImGuiTreeNodeFlags_None;
+    if (node.children.empty()) flags |= ImGuiTreeNodeFlags_Leaf;
+    if (ImGui::TreeNodeEx(&node, flags, "%s%s", node.name.c_str(),
+                          node.mesh >= 0 ? " [mesh]" : "")) {
+      pending.push_back(-1);
+      pending.insert(pending.end(), node.children.rbegin(),
+                     node.children.rend());
+    }
+    if (ImGui::IsItemHovered())
+      ImGui::SetTooltip(
+          "Source node (read-only). Edit the model root in Inspector.");
+  }
+}
+
 void DrawScene(EditorState& editor, PanelState& panels) {
   if (panels.hierarchy) {
     const bool shown = ImGui::Begin("Scene", &panels.hierarchy);
@@ -182,14 +212,24 @@ void DrawScene(EditorState& editor, PanelState& panels) {
       ImGui::Spacing();
       for (const auto& entity : editor.entities()) {
         ImGui::PushID(static_cast<int>(entity.id));
-        if (ImGui::Selectable(entity.name.c_str(),
-                              editor.selection() == entity.id))
+        auto flags =
+            ImGuiTreeNodeFlags_OpenOnArrow | ImGuiTreeNodeFlags_SpanAvailWidth;
+        if (editor.selection() == entity.id)
+          flags |= ImGuiTreeNodeFlags_Selected;
+        const bool open =
+            ImGui::TreeNodeEx("model", flags, "%s%s", entity.name.c_str(),
+                              entity.visible ? "" : " (hidden)");
+        if (ImGui::IsItemClicked() && !ImGui::IsItemToggledOpen())
           editor.Select(entity.id);
+        if (open) {
+          if (entity.asset) DrawImportedNodes(*entity.asset);
+          ImGui::TreePop();
+        }
         ImGui::PopID();
       }
       ImGui::Spacing();
       ImGui::Separator();
-      DrawLabel("PROCEDURAL CONTENT");
+      DrawLabel("SCENE CONTENT");
       ImGui::TextWrapped(
           "%zu entities\nSelect an object to edit its transform.",
           editor.entities().size());
@@ -229,7 +269,6 @@ void DrawInspector(EditorState& editor, PanelState& panels) {
             editor.Log("WARN", "Rejected invalid transform");
           if (ImGui::Button("Reset transform")) {
             Transform reset;
-            reset.position.y = .5f;
             editor.SetTransform(entity->id, reset);
           }
         }
@@ -239,12 +278,19 @@ void DrawInspector(EditorState& editor, PanelState& panels) {
                             ImGuiColorEditFlags_NoInputs);
         if (ImGui::CollapsingHeader("Geometry",
                                     ImGuiTreeNodeFlags_DefaultOpen)) {
-          ImGui::TextUnformatted(
-              "Built-in cube\n12 triangles / 36 vertices\nPreview diffuse "
-              "shader");
+          if (entity->asset) {
+            ImGui::Text("%zu meshes / %zu nodes", entity->asset->meshes.size(),
+                        entity->asset->nodes.size());
+            ImGui::Text("%zu triangles / %zu vertices",
+                        entity->asset->triangles, entity->asset->vertices);
+            ImGui::TextUnformatted("Base color / diffuse preview");
+          }
         }
         ImGui::Spacing();
-        if (ImGui::Button("Frame selected")) editor.camera().Frame(*entity);
+        if (ImGui::Button("Frame selected"))
+          editor.camera().Frame(*entity,
+                                static_cast<float>(panels.viewport_width) /
+                                    panels.viewport_height);
         if (ImGui::Button("Delete selected")) editor.RemoveSelected();
       } else {
         DrawLabel("NO SELECTION");
@@ -270,9 +316,12 @@ bool DrawViewport(EditorState& editor, ViewportRenderer& renderer,
       ImGui::Checkbox("Wireframe", &editor.display_options().wireframe);
       ImGui::SameLine();
       if (ImGui::Button("Frame") && editor.selected())
-        editor.camera().Frame(*editor.selected());
+        editor.camera().Frame(
+            *editor.selected(),
+            static_cast<float>(panels.viewport_width) / panels.viewport_height);
       ImGui::SameLine();
       if (ImGui::Button("Reset camera")) editor.camera() = OrbitCamera{};
+      ImGui::TextWrapped("%s", panels.import_status.c_str());
       const auto size = ImGui::GetContentRegionAvail();
       if (size.x > 1 && size.y > 1) {
         const auto origin = ImGui::GetCursorScreenPos();
@@ -288,8 +337,11 @@ bool DrawViewport(EditorState& editor, ViewportRenderer& renderer,
             1, static_cast<int>(size.y * io.DisplayFramebufferScale.y));
         // Render 可能重建纹理，因此必须先渲染，再向 ImGui 提交句柄。
         // Render may recreate the texture; submit its handle only afterward.
-        if (!renderer.Render(editor, panels.viewport_width,
-                             panels.viewport_height, error)) {
+        if (!renderer.Render(editor.BuildRenderScene(
+                                 static_cast<float>(panels.viewport_width) /
+                                 panels.viewport_height),
+                             panels.viewport_width, panels.viewport_height,
+                             error)) {
           ImGui::End();
           return false;
         }
@@ -309,7 +361,9 @@ bool DrawViewport(EditorState& editor, ViewportRenderer& renderer,
           if (io.MouseWheel != 0) editor.camera().Zoom(io.MouseWheel);
           if (!io.WantTextInput && ImGui::IsKeyPressed(ImGuiKey_F) &&
               editor.selected())
-            editor.camera().Frame(*editor.selected());
+            editor.camera().Frame(*editor.selected(),
+                                  static_cast<float>(panels.viewport_width) /
+                                      panels.viewport_height);
         }
         auto* draw = ImGui::GetWindowDrawList();
         draw->AddText(ImVec2(origin.x + 14, origin.y + 14),
@@ -355,9 +409,20 @@ void DrawAssets(EditorState& editor, PanelState& panels) {
       if (ImGui::Button("Cube\nAdd to scene", ImVec2(130, 65)))
         editor.AddCube();
       ImGui::SameLine();
-      ImGui::TextWrapped(
-          "File import and asset processing\nare planned for the Mesh "
-          "milestone.");
+      ImGui::BeginDisabled(panels.import_busy);
+      if (ImGui::Button("Import GLB...", ImVec2(130, 65)))
+        panels.import_requested = true;
+      ImGui::EndDisabled();
+      ImGui::Separator();
+      ImGui::TextWrapped("%s", panels.import_status.c_str());
+      if (!panels.import_metrics.empty())
+        ImGui::TextWrapped("%s", panels.import_metrics.c_str());
+      DrawLabel("Static triangles / embedded resources / base color preview");
+      for (const auto& entity : editor.entities()) {
+        if (entity.asset)
+          ImGui::Text("%s: %zu vertices, %zu triangles", entity.name.c_str(),
+                      entity.asset->vertices, entity.asset->triangles);
+      }
     }
     ImGui::End();
   }
@@ -383,6 +448,9 @@ void DrawPerformance(const ViewportRenderer& renderer, PanelState& panels,
       ImGui::Text("Viewport %d x %d", renderer.width(), renderer.height());
       ImGui::SameLine();
       ImGui::Text("/ %u draws", renderer.draws());
+      ImGui::Text("Geometry: %zu cached meshes / %.2f MiB",
+                  renderer.cached_meshes(),
+                  renderer.gpu_bytes() / (1024.0 * 1024.0));
       ImGui::TextWrapped("%s", gpu.c_str());
       DrawLabel("GPU timing is not implemented in this preview.");
     }

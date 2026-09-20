@@ -1,22 +1,23 @@
 // Copyright 2026 WorldForge contributors
 // SPDX-License-Identifier: MIT
-
 #ifndef WORLDFORGE_SRC_RENDER_VIEWPORT_RENDERER_H_
 #define WORLDFORGE_SRC_RENDER_VIEWPORT_RENDERER_H_
 
+#include <cstddef>
 #include <cstdint>
+#include <map>
+#include <memory>
 #include <string>
 
-#include "editor/editor_state.h"
+#include "domain/imported_scene.h"
+#include "domain/render_scene.h"
 
 namespace wf {
-// 持有 GL 对象，所有调用和析构都要求所属 GL 上下文当前有效。
-// 只初始化一次；初始化失败后仍可安全析构。
-// Owns GL objects; all calls and destruction require their current context.
-// Initialize once before rendering; failed initialization is safe to destroy.
+// 所有 GL 对象只能在当前上下文的主线程创建或销毁。
+// All GL objects are created and destroyed on the main context thread.
 class ViewportRenderer {
  public:
-  ViewportRenderer() = default;
+  ViewportRenderer();
 
   ViewportRenderer(const ViewportRenderer&) = delete;
 
@@ -26,13 +27,15 @@ class ViewportRenderer {
 
   bool Initialize(std::string* error);
 
-  // 按像素尺寸渲染离屏视口；失败时将诊断写入非空的 error。
-  // Renders offscreen in pixels; writes failures to the non-null error.
-  bool Render(const EditorState& state, int width, int height,
+  // 先上传全部新 Mesh，再发布缓存；失败释放本次临时资源。
+  // Stages all new meshes before cache publication; failure releases staging.
+  bool Prepare(const ImportedScene& scene, std::string* error);
+
+  void CollectUnused();
+
+  bool Render(const RenderScene& scene, int width, int height,
               std::string* error);
 
-  // 借用的 GL 纹理句柄；调整尺寸或析构会使旧句柄失效。
-  // Returns a borrowed GL texture handle, invalidated by resize or destruction.
   std::uintptr_t texture_token() const { return color_; }
 
   int width() const { return width_; }
@@ -41,16 +44,20 @@ class ViewportRenderer {
 
   unsigned int draws() const { return draws_; }
 
-  // 仅供固定 Cube 冒烟测试使用，会读回像素；不用于每帧统计。
-  // Reads pixels for the fixed cube smoke test, not per-frame profiling.
+  std::size_t cached_meshes() const { return meshes_.size(); }
+
+  std::size_t gpu_bytes() const;
+
+  // 读取像素供测试判断非空画面；不用于每帧性能统计。
+  // Reads pixels for nonempty-frame tests, not per-frame profiling.
   bool HasRenderedContent() const;
 
  private:
+  class GpuMesh;
   bool Resize(int width, int height, std::string* error);
 
+  std::map<std::uint64_t, std::unique_ptr<GpuMesh>> meshes_;
   unsigned int program_ = 0;
-  unsigned int vao_ = 0;
-  unsigned int vbo_ = 0;
   unsigned int grid_vao_ = 0;
   unsigned int grid_vbo_ = 0;
   unsigned int fbo_ = 0;
@@ -62,5 +69,4 @@ class ViewportRenderer {
   unsigned int draws_{};
 };
 }  // namespace wf
-
 #endif  // WORLDFORGE_SRC_RENDER_VIEWPORT_RENDERER_H_

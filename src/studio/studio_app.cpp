@@ -4,21 +4,26 @@
 #include "studio/studio_app.h"
 
 #include <algorithm>
+#include <chrono>
 #include <cstddef>
 #include <cstdlib>
 #include <sstream>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include "SDL3/SDL.h"
 #include "backends/imgui_impl_opengl3.h"
 #include "backends/imgui_impl_sdl3.h"
 #include "glad/gl.h"
+#include "glm/glm.hpp"
 // 上游根目录公共头文件；仅豁免这一处路径检查。
 // Upstream public header at the include root; only its path check is waived.
 #include "imgui.h"  // NOLINT(build/include_subdir)
 
+#include "application/import_service.h"
 #include "editor/editor_state.h"
+#include "platform/glb_files.h"
 #include "platform/sdl_host.h"
 #include "render/viewport_renderer.h"
 #include "ui/studio_panels.h"
@@ -91,9 +96,87 @@ bool SaveScreenshot(SDL_Window* window, const std::string& path,
   }
   return true;
 }
+
+// 主线程检查代次、上传 GPU、最后发布根对象；失败不改变既有场景。
+// Main thread checks generation, uploads, then publishes; failure is isolated.
+void ProcessImports(EditorState& editor, ViewportRenderer& renderer,
+                    ImportService& service, GlbFilePicker& picker,
+                    PanelState& panels) {
+  if (panels.import_requested) {
+    panels.import_requested = false;
+    if (!service.busy() && !picker.busy()) {
+      picker.Open(editor.generation());
+      panels.import_status = "Choosing GLB...";
+    }
+  }
+  if (auto choice = picker.TakeChoice()) {
+    if (!choice->error.empty()) {
+      panels.import_status = "File dialog failed: " + choice->error;
+      editor.Log("WARN", panels.import_status);
+    } else if (choice->generation != editor.generation()) {
+      panels.import_status = "Selection discarded: scene changed";
+    } else if (choice->path.empty()) {
+      panels.import_status = "Import cancelled";
+    } else {
+      service.Start(std::move(choice->path), choice->generation);
+    }
+  }
+  switch (service.stage()) {
+    case ImportStage::kReading:
+      panels.import_status = "Reading GLB...";
+      break;
+    case ImportStage::kParsing:
+      panels.import_status = "Parsing and validating GLB...";
+      break;
+    case ImportStage::kAwaitingUpload:
+      panels.import_status = "Preparing GPU geometry...";
+      break;
+    case ImportStage::kIdle:
+      break;
+  }
+  if (auto result = service.TakeResult()) {
+    if (result->generation != editor.generation()) {
+      panels.import_status = "Import discarded: scene changed";
+      editor.Log("INFO", panels.import_status);
+    } else {
+      const auto start = std::chrono::steady_clock::now();
+      if (result->scene && renderer.Prepare(*result->scene, &result->error)) {
+        const auto separator = result->path.find_last_of("/\\");
+        const auto name = result->path.substr(
+            separator == std::string::npos ? 0 : separator + 1);
+        editor.AddImported(name, result->scene);
+        editor.camera().Frame(
+            *editor.selected(),
+            static_cast<float>(panels.viewport_width) / panels.viewport_height);
+        for (const auto& warning : result->scene->warnings)
+          editor.Log("WARN", warning);
+        panels.import_status = "Imported " + name;
+        if (!result->scene->warnings.empty())
+          panels.import_status += " (preview limitations: see Console)";
+      } else {
+        panels.import_status = "Import failed: " + result->error;
+        editor.Log("WARN", panels.import_status);
+      }
+      const double upload_ms = std::chrono::duration<double, std::milli>(
+                                   std::chrono::steady_clock::now() - start)
+                                   .count();
+      std::ostringstream metrics;
+      metrics << result->file_bytes << " file bytes / read " << result->read_ms
+              << " ms / parse " << result->parse_ms << " ms / upload+publish "
+              << upload_ms << " ms";
+      if (result->scene)
+        metrics << " / " << result->scene->upload_bytes << " geometry bytes";
+      panels.import_metrics = metrics.str();
+      editor.Log("INFO", panels.import_metrics);
+    }
+  }
+  panels.import_busy = service.busy() || picker.busy();
+  renderer.CollectUnused();
+}
 }  // namespace
 
-int RunStudio(bool smoke_test, const std::string& output, std::string* error) {
+int RunStudio(bool smoke_test, const std::string& output, std::string* error,
+              const std::string& mesh_path) {
   // 按依赖顺序构造，离开作用域时先释放 Renderer/ImGui，再释放 GL。
   // Construction order makes Renderer/ImGui die before the GL context.
   SdlHost host;
@@ -129,7 +212,9 @@ int RunStudio(bool smoke_test, const std::string& output, std::string* error) {
   size_t windows_dir_size{};
   _dupenv_s(&windows_dir, &windows_dir_size, "WINDIR");
   if (windows_dir) {
-    const std::string font = std::string(windows_dir) + "/Fonts/segoeui.ttf";
+    std::string font = std::string(windows_dir) + "/Fonts/msyh.ttc";
+    if (!SDL_GetPathInfo(font.c_str(), nullptr))
+      font = std::string(windows_dir) + "/Fonts/segoeui.ttf";
     if (SDL_GetPathInfo(font.c_str(), nullptr))
       io.FontDefault = io.Fonts->AddFontFromFileTTF(font.c_str(), 14.0f);
   }
@@ -140,8 +225,15 @@ int RunStudio(bool smoke_test, const std::string& output, std::string* error) {
   if (!renderer.Initialize(error)) return 1;
   EditorState editor;
   PanelState panels;
+  ImportService imports(ReadGlbFile);
+  GlbFilePicker picker;
+  const bool mesh_smoke = smoke_test && !mesh_path.empty();
+  bool mesh_ready = false;
+  if (mesh_smoke) imports.Start(mesh_path, editor.generation());
+  const auto import_deadline =
+      std::chrono::steady_clock::now() + std::chrono::seconds(30);
   const auto gpu = host.GpuDescription();
-  editor.Log("INFO", "WorldForge Studio " WF_VERSION " / Windows framework");
+  editor.Log("INFO", "WorldForge Studio " WF_VERSION " / Windows mesh preview");
   editor.Log("INFO", gpu);
   editor.Log("INFO",
              "OpenGL viewport ready. Right-drag to orbit; middle-drag to pan.");
@@ -167,6 +259,27 @@ int RunStudio(bool smoke_test, const std::string& output, std::string* error) {
         ApplyTheme(host.scale());
     }
     if (!running) break;
+    ProcessImports(editor, renderer, imports, picker, panels);
+    if (mesh_smoke && !mesh_ready) {
+      if (std::chrono::steady_clock::now() > import_deadline) {
+        *error = "Mesh smoke import timed out";
+        return 2;
+      }
+      if (imports.busy()) {
+        SDL_Delay(1);
+        continue;
+      }
+      if (editor.entities().size() != 2) {
+        *error = panels.import_status;
+        return 2;
+      }
+      const auto imported = editor.selected()->id;
+      editor.Select(editor.entities().front().id);
+      editor.RemoveSelected();
+      editor.Select(imported);
+      editor.display_options().grid = false;
+      mesh_ready = true;
+    }
     if (!smoke_test &&
         (SDL_GetWindowFlags(host.window()) & SDL_WINDOW_MINIMIZED)) {
       SDL_Delay(30);
@@ -179,11 +292,13 @@ int RunStudio(bool smoke_test, const std::string& output, std::string* error) {
       SDL_SetWindowSize(host.window(), 1200, 780);
     }
     if (smoke_test && frame == 15) {
-      auto id = editor.AddCube();
+      const auto id = mesh_smoke ? editor.selected()->id : editor.AddCube();
       Transform t;
-      t.position = {1.6f, .5f, 0};
+      t.position = mesh_smoke ? glm::vec3(0) : glm::vec3(1.6f, .5f, 0);
       t.rotation_degrees.y = 25;
+      t.scale = {1.2f, .8f, 1};
       transform_verified = editor.SetTransform(id, t);
+      if (mesh_smoke) editor.camera().Frame(*editor.selected());
       editor.camera().Orbit(20, 5);
       editor.camera().Zoom(.3f);
     }
@@ -240,6 +355,11 @@ int RunStudio(bool smoke_test, const std::string& output, std::string* error) {
              << ",\n  \"cameraInput\": "
              << (camera_input_verified ? "true" : "false")
              << ",\n  \"panels\": " << panels.panels_drawn
+             << ",\n  \"importedMesh\": " << (mesh_ready ? "true" : "false")
+             << ",\n  \"triangles\": " << editor.selected()->asset->triangles
+             << ",\n  \"vertices\": " << editor.selected()->asset->vertices
+             << ",\n  \"importMetrics\": \"" << panels.import_metrics << "\""
+             << ",\n  \"cachedMeshes\": " << renderer.cached_meshes()
              << ",\n  \"glError\": " << gl_error << "\n}\n";
       const auto report_text = report.str();
       if (!SDL_SaveFile((output + "/report.json").c_str(), report_text.data(),

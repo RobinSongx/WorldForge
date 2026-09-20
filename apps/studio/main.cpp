@@ -16,7 +16,8 @@ int main(int argc, char** argv) {
   const bool smoke = argc > 1 && std::string_view(argv[1]) == "--smoke-test";
   const std::string output = smoke && argc > 2 ? argv[2] : "artifacts/smoke";
   std::string error;
-  const int result = wf::RunStudio(smoke, output, &error);
+  const std::string mesh_path = smoke && argc > 3 ? argv[3] : "";
+  const int result = wf::RunStudio(smoke, output, &error, mesh_path);
   if (result != 0) {
     if (smoke) {
       if (SDL_CreateDirectory(output.c_str())) {
