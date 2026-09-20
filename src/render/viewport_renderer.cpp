@@ -16,6 +16,8 @@
 
 namespace wf {
 namespace {
+// 法线采用模型矩阵的逆转置，保证非均匀缩放下的光照方向正确。
+// Transforms normals by the inverse transpose for nonuniform scaling.
 constexpr char kVertexSource[] = R"(#version 450 core
 layout(location=0) in vec3 aPosition;
 layout(location=1) in vec3 aNormal;
@@ -30,6 +32,8 @@ void main() {
   gl_Position = uViewProjection * p;
 }
 )";
+// 仅用于预览的漫反射；网格与选中线框走无光照分支。
+// Provides diffuse preview shading; grid and selection lines are unlit.
 constexpr char kFragmentSource[] = R"(#version 450 core
 in vec3 normal;
 in vec3 world;
@@ -43,6 +47,9 @@ void main() {
   outColor = vec4(color, 1);
 }
 )";
+
+// 成功返回由调用者释放的 shader；失败先清理，再返回 0 和诊断。
+// Returns a caller-owned shader, or cleans up and returns 0 with an error.
 unsigned int CompileShader(unsigned int kind, const char* source,
                            std::string* error) {
   auto id = glCreateShader(kind);
@@ -59,6 +66,9 @@ unsigned int CompileShader(unsigned int kind, const char* source,
   }
   return id;
 }
+
+// 顶点交错存储位置与法线，各三个 float；创建的 VAO/VBO 由调用者持有。
+// Uploads interleaved position/normal triples; the caller owns VAO/VBO.
 void CreateMesh(unsigned int& vao, unsigned int& vbo,
                 const std::vector<float>& data) {
   glGenVertexArrays(1, &vao);
@@ -75,6 +85,7 @@ void CreateMesh(unsigned int& vao, unsigned int& vbo,
                         reinterpret_cast<void*>(3 * sizeof(float)));
 }
 }  // namespace
+
 bool ViewportRenderer::Initialize(std::string* error) {
   const auto vs = CompileShader(GL_VERTEX_SHADER, kVertexSource, error);
   if (!vs) return false;
@@ -87,6 +98,8 @@ bool ViewportRenderer::Initialize(std::string* error) {
   glAttachShader(program_, vs);
   glAttachShader(program_, fs);
   glLinkProgram(program_);
+  // 链接后绘制只需 program，释放独立 shader 的应用侧所有权。
+  // After linking, rendering uses the program; release shader ownership.
   glDeleteShader(vs);
   glDeleteShader(fs);
   int ok{};
@@ -97,6 +110,8 @@ bool ViewportRenderer::Initialize(std::string* error) {
     *error = message;
     return false;
   }
+  // 各面分别存储顶点与法线，让 Cube 保持硬边。
+  // Stores per-face vertices and normals to preserve hard cube edges.
   std::vector<float> cube;
   const glm::vec3 normals[] = {{1, 0, 0},  {-1, 0, 0}, {0, 1, 0},
                                {0, -1, 0}, {0, 0, 1},  {0, 0, -1}};
@@ -138,6 +153,7 @@ bool ViewportRenderer::Initialize(std::string* error) {
   glBindVertexArray(0);
   return true;
 }
+
 ViewportRenderer::~ViewportRenderer() {
   glDeleteFramebuffers(1, &fbo_);
   glDeleteTextures(1, &color_);
@@ -148,9 +164,12 @@ ViewportRenderer::~ViewportRenderer() {
   glDeleteVertexArrays(1, &grid_vao_);
   glDeleteProgram(program_);
 }
+
 bool ViewportRenderer::Resize(int w, int h, std::string* error) {
   w = std::clamp(w, 1, 4096);
   h = std::clamp(h, 1, 4096);
+  // 只在像素尺寸变化时重建附件，避免每帧重复分配显存。
+  // Recreates attachments only when pixel dimensions change.
   if (w == width_ && h == height_) return true;
   glDeleteFramebuffers(1, &fbo_);
   glDeleteTextures(1, &color_);
@@ -183,12 +202,16 @@ bool ViewportRenderer::Resize(int w, int h, std::string* error) {
   }
   return true;
 }
+
 bool ViewportRenderer::Render(const EditorState& state, int w, int h,
                               std::string* error) {
   if (!Resize(w, h, error)) return false;
   draws_ = 0;
   glBindFramebuffer(GL_FRAMEBUFFER, fbo_);
   glViewport(0, 0, width_, height_);
+  // 与 ImGui 共用上下文，显式设置本次绘制所需状态，避免继承 UI 状态。
+  // Shares the context with ImGui; sets render state rather than inheriting UI
+  // state.
   glDisable(GL_SCISSOR_TEST);
   glDisable(GL_BLEND);
   glEnable(GL_DEPTH_TEST);
@@ -225,6 +248,8 @@ bool ViewportRenderer::Render(const EditorState& state, int w, int h,
       glDrawArrays(GL_TRIANGLES, 0, 36);
       ++draws_;
       if (state.selection() == e.id && !state.display_options().wireframe) {
+        // 轻微前移选中线框的深度，减少与同一表面填充三角形的深度冲突。
+        // Offsets selection lines toward the viewer to reduce z-fighting.
         glEnable(GL_POLYGON_OFFSET_LINE);
         glPolygonOffset(-1, -1);
         glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
@@ -236,6 +261,8 @@ bool ViewportRenderer::Render(const EditorState& state, int w, int h,
         glUniform1i(glGetUniformLocation(program_, "uUnlit"), 0);
       }
     }
+  // 恢复填充模式与默认 framebuffer，供后续 ImGui 合成使用。
+  // Restores fill mode and the default framebuffer for ImGui composition.
   glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
   glBindVertexArray(0);
   glUseProgram(0);
@@ -243,12 +270,15 @@ bool ViewportRenderer::Render(const EditorState& state, int w, int h,
   glDisable(GL_DEPTH_TEST);
   return true;
 }
+
 bool ViewportRenderer::HasRenderedContent() const {
   if (!fbo_) return false;
   std::vector<unsigned char> pixels(static_cast<size_t>(width_) * height_ * 4);
   glBindFramebuffer(GL_READ_FRAMEBUFFER, fbo_);
   glReadPixels(0, 0, width_, height_, GL_RGBA, GL_UNSIGNED_BYTE, pixels.data());
   glBindFramebuffer(GL_READ_FRAMEBUFFER, 0);
+  // 针对本测试的暖色 Cube 检查非背景像素，并非通用图像正确性判断。
+  // Detects warm cube pixels in this fixture, not general image correctness.
   size_t colored{};
   for (size_t i = 0; i < pixels.size(); i += 4)
     if (pixels[i] > 70 && pixels[i + 1] > 40) ++colored;

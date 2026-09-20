@@ -16,6 +16,8 @@ bool SdlHost::Initialize(bool hidden, std::string* error) {
     *error = SDL_GetError();
     return false;
   }
+  // 记录每一步已取得的资源，使初始化中途失败也能安全清理。
+  // Tracks acquired resources so partial initialization can be cleaned up.
   initialized_ = true;
   if (!SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 4) ||
       !SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 5) ||
@@ -40,6 +42,8 @@ bool SdlHost::Initialize(bool hidden, std::string* error) {
     *error = SDL_GetError();
     return false;
   }
+  // 必须先使上下文当前有效，再加载对应驱动的 GL 函数。
+  // Makes the context current before loading driver-specific GL functions.
   if (!gladLoadGL(reinterpret_cast<GLADloadfunc>(SDL_GL_GetProcAddress)) ||
       !GLAD_GL_VERSION_4_5) {
     *error = "OpenGL 4.5 is required. Update your graphics driver.";
@@ -50,6 +54,8 @@ bool SdlHost::Initialize(bool hidden, std::string* error) {
 }
 
 SdlHost::~SdlHost() {
+  // 按依赖的逆序释放：上下文、窗口，最后退出 SDL。
+  // Releases dependencies in reverse order: context, window, then SDL.
   if (context_ != nullptr) SDL_GL_DestroyContext(context_);
   if (window_ != nullptr) SDL_DestroyWindow(window_);
   if (initialized_) SDL_Quit();

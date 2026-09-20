@@ -10,6 +10,10 @@ Read [docs/CODING_STYLE.md](docs/CODING_STYLE.md) before changing C++.
 - Use the pinned clang-format Google preset and cpplint. Do not weaken rules
   to make a change pass. Third-party source and generated code retain upstream
   conventions and are excluded from our source scan.
+- Separate function definitions (including inline accessors) with a blank line.
+  Keep core explanatory comments bilingual: Chinese first, English second,
+  with equivalent meaning; explain contracts, reasoning and ownership.
+  Use UTF-8. License notices and machine-readable markers keep their syntax.
 - Do not introduce C++ exception handling or prohibited library facilities
   such as `<filesystem>`. Return explicit errors; use RAII for cleanup.
 - Run `build/python/Scripts/python.exe tools/check_style.py`,

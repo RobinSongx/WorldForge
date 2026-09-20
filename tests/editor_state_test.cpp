@@ -10,7 +10,10 @@
 
 #include "glm/glm.hpp"
 #include "glm/gtc/type_ptr.hpp"
+
 namespace {
+// 不用 assert，以保证 Release 构建也执行检查并返回非零退出码。
+// Avoids assert so checks remain active and fail the process in Release.
 void Require(bool value, const char* message) {
   if (!value) {
     std::cerr << message << '\n';
@@ -33,6 +36,8 @@ int main() {
   const auto center = t.Matrix() * glm::vec4(0, 0, 0, 1);
   Require(glm::length(glm::vec3(center) - t.position) < .0001f,
           "Transform composition incorrect");
+  // 非法变换必须被拒绝，而且不能修改原有状态。
+  // Invalid transforms must be rejected without mutating existing state.
   auto bad = t;
   bad.scale.y = 0;
   Require(!state.SetTransform(second, bad), "Singular scale accepted");
@@ -44,6 +49,8 @@ int main() {
   state.camera().Frame(*state.selected());
   Require(state.camera().target() == t.position,
           "Frame selection target wrong");
+  // 极端输入仍需保持距离与俯仰范围，生成有限的相机矩阵。
+  // Extreme inputs must preserve bounds and finite camera matrices.
   state.camera().Zoom(10000);
   Require(state.camera().distance() >= .2f, "Zoom underflow");
   state.camera().Zoom(-10000);

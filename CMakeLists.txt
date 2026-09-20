@@ -53,6 +53,11 @@ if(WF_BUILD_STUDIO)
   add_library(wf_platform src/platform/sdl_host.cpp)
   target_include_directories(wf_platform PUBLIC src)
   target_link_libraries(wf_platform PUBLIC SDL3::SDL3 PRIVATE wf_glad)
+  if(MSVC)
+    # 此目标不继承 wf_editor，单独启用 UTF-8 以读取双语注释。
+    # This target does not inherit wf_editor; read bilingual sources as UTF-8.
+    target_compile_options(wf_platform PRIVATE /utf-8)
+  endif()
   add_executable(worldforge-studio WIN32
     apps/studio/main.cpp src/studio/studio_app.cpp src/ui/studio_panels.cpp)
   target_link_libraries(worldforge-studio PRIVATE wf_editor wf_renderer wf_platform wf_imgui wf_glad)

@@ -1,4 +1,5 @@
 BasedOnStyle: Google
+SeparateDefinitionBlocks: Always
 IncludeBlocks: Regroup
 IncludeCategories:
   - Regex: '^<.*\.h>'

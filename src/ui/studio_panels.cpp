@@ -7,8 +7,12 @@
 #include <string>
 
 #include "glm/gtc/type_ptr.hpp"
-#include "imgui.h"  // NOLINT(build/include_subdir): upstream public header.
-#include "imgui_internal.h"  // NOLINT(build/include_subdir): upstream public header.
+// 上游根目录公共头文件；仅豁免这一处路径检查。
+// Upstream public header at the include root; only its path check is waived.
+#include "imgui.h"  // NOLINT(build/include_subdir)
+// 上游 DockBuilder API 所在头文件；路径由上游提供。
+// Upstream header for DockBuilder APIs; its path is defined upstream.
+#include "imgui_internal.h"  // NOLINT(build/include_subdir)
 
 #include "editor/editor_state.h"
 #include "render/viewport_renderer.h"
@@ -17,7 +21,11 @@ namespace wf {
 namespace {
 constexpr ImVec4 kAccent{0.87f, 0.65f, 0.34f, 1.0f};
 constexpr ImVec4 kMuted{0.53f, 0.60f, 0.65f, 1.0f};
+
 void DrawLabel(const char* text) { ImGui::TextColored(kMuted, "%s", text); }
+
+// 只在首次运行或用户重置时重建布局，保留平时手动调整的停靠位置。
+// Rebuilds only on first use or reset, preserving user docking changes.
 void ResetDock(ImGuiID id, const ImVec2& size) {
   ImGui::DockBuilderRemoveNode(id);
   ImGui::DockBuilderAddNode(id, ImGuiDockNodeFlags_DockSpace);
@@ -40,6 +48,7 @@ void ResetDock(ImGuiID id, const ImVec2& size) {
   ImGui::DockBuilderDockWindow("Performance", bottom_right);
   ImGui::DockBuilderFinish(id);
 }
+
 void DrawHeader(EditorState& editor, PanelState& panels) {
   if (!ImGui::BeginMainMenuBar()) return;
   ImGui::TextColored(kAccent, "W O R L D F O R G E");
@@ -73,7 +82,10 @@ void DrawHeader(EditorState& editor, PanelState& panels) {
   ImGui::EndMainMenuBar();
 }
 }  // namespace
+
 void ApplyTheme(float scale) {
+  // 先恢复基准，再按当前 DPI 缩放；避免切换显示器时尺寸反复累乘。
+  // Resets the base style before DPI scaling to avoid repeated multiplication.
   ImGui::GetStyle() = ImGuiStyle{};
   ImGui::StyleColorsDark();
   auto& style = ImGui::GetStyle();
@@ -115,6 +127,7 @@ void ApplyTheme(float scale) {
   style.ScaleAllSizes(scale);
   style.FontScaleDpi = scale;
 }
+
 namespace {
 void DrawDock(PanelState& panels) {
   auto* main = ImGui::GetMainViewport();
@@ -197,6 +210,8 @@ void DrawInspector(EditorState& editor, PanelState& panels) {
         ImGui::Checkbox("Visible", &entity->visible);
         if (ImGui::CollapsingHeader("Transform",
                                     ImGuiTreeNodeFlags_DefaultOpen)) {
+          // 先编辑副本，通过校验后再提交，非法输入不会破坏原变换。
+          // Edits a copy; commits only valid values to preserve existing state.
           auto transform = entity->transform;
           DrawLabel("Position");
           ImGui::SetNextItemWidth(-1);
@@ -264,19 +279,28 @@ bool DrawViewport(EditorState& editor, ViewportRenderer& renderer,
         panels.image_x = origin.x;
         panels.image_y = origin.y;
         const auto& io = ImGui::GetIO();
+        // UI 布局用逻辑尺寸，离屏附件按 framebuffer 比例换算成像素。
+        // Converts logical UI size to pixel dimensions for offscreen
+        // attachments.
         panels.viewport_width = std::max(
             1, static_cast<int>(size.x * io.DisplayFramebufferScale.x));
         panels.viewport_height = std::max(
             1, static_cast<int>(size.y * io.DisplayFramebufferScale.y));
-        // Image refers to a stable texture until Render() resizes it: draw
-        // after render.
+        // Render 可能重建纹理，因此必须先渲染，再向 ImGui 提交句柄。
+        // Render may recreate the texture; submit its handle only afterward.
         if (!renderer.Render(editor, panels.viewport_width,
                              panels.viewport_height, error)) {
           ImGui::End();
           return false;
         }
+        // 翻转 V 坐标，使 GL 纹理的上下方向与 UI 图像一致。
+        // Flips V coordinates to align GL texture orientation with the UI.
         ImGui::Image(static_cast<ImTextureID>(renderer.texture_token()), size,
                      ImVec2(0, 1), ImVec2(1, 0));
+        // 仅悬停视口时消费导航输入，防止操作其他面板时误动相机。
+        // 相机变化在下一帧渲染时生效。
+        // Consumes navigation only over the viewport, not over other panels.
+        // Camera changes affect the next rendered frame.
         if (ImGui::IsItemHovered()) {
           if (ImGui::IsMouseDragging(ImGuiMouseButton_Right))
             editor.camera().Orbit(io.MouseDelta.x, io.MouseDelta.y);
@@ -341,6 +365,8 @@ void DrawAssets(EditorState& editor, PanelState& panels) {
 
 void DrawPerformance(const ViewportRenderer& renderer, PanelState& panels,
                      const std::string& gpu) {
+  // 记录 CPU 帧间隔的环形历史；该数值不是 GPU 执行耗时。
+  // Keeps a ring of CPU frame intervals, not GPU execution timings.
   panels.frame_times[panels.frame_index++ % panels.frame_times.size()] =
       ImGui::GetIO().DeltaTime * 1000;
   if (panels.performance) {
@@ -370,6 +396,8 @@ bool DrawStudio(EditorState& editor, ViewportRenderer& renderer,
                 std::string* error) {
   DrawHeader(editor, panels);
   DrawDock(panels);
+  // 先处理场景与属性编辑，再绘制视口，使这些修改在本帧可见。
+  // Applies scene/inspector edits before rendering them in this frame.
   DrawScene(editor, panels);
   DrawInspector(editor, panels);
   if (!DrawViewport(editor, renderer, panels, error)) return false;
