@@ -126,7 +126,7 @@ void ProcessImports(EditorState& editor, ViewportRenderer& renderer,
       panels.import_status = "Reading GLB...";
       break;
     case ImportStage::kParsing:
-      panels.import_status = "Parsing and validating GLB...";
+      panels.import_status = "Parsing GLB and decoding PNG...";
       break;
     case ImportStage::kAwaitingUpload:
       panels.import_status = "Preparing GPU geometry...";
@@ -162,10 +162,11 @@ void ProcessImports(EditorState& editor, ViewportRenderer& renderer,
                                    .count();
       std::ostringstream metrics;
       metrics << result->file_bytes << " file bytes / read " << result->read_ms
-              << " ms / parse " << result->parse_ms << " ms / upload+publish "
-              << upload_ms << " ms";
+              << " ms / parse+decode " << result->parse_ms
+              << " ms / upload+publish " << upload_ms << " ms";
       if (result->scene)
-        metrics << " / " << result->scene->upload_bytes << " geometry bytes";
+        metrics << " / " << result->scene->upload_bytes << " geometry bytes / "
+                << result->scene->image_bytes << " decoded image bytes";
       panels.import_metrics = metrics.str();
       editor.Log("INFO", panels.import_metrics);
     }
@@ -360,6 +361,11 @@ int RunStudio(bool smoke_test, const std::string& output, std::string* error,
              << ",\n  \"vertices\": " << editor.selected()->asset->vertices
              << ",\n  \"importMetrics\": \"" << panels.import_metrics << "\""
              << ",\n  \"cachedMeshes\": " << renderer.cached_meshes()
+             << ",\n  \"cachedImages\": " << renderer.cached_images()
+             << ",\n  \"cachedSamplers\": " << renderer.cached_samplers()
+             << ",\n  \"textureBytes\": " << renderer.texture_bytes()
+             << ",\n  \"selectionOverlay\": "
+             << (editor.display_options().selection_overlay ? "true" : "false")
              << ",\n  \"glError\": " << gl_error << "\n}\n";
       const auto report_text = report.str();
       if (!SDL_SaveFile((output + "/report.json").c_str(), report_text.data(),

@@ -14,11 +14,13 @@
 
 #include "glad/gl.h"
 #include "glm/glm.hpp"
+#include "glm/gtc/color_space.hpp"
 #include "glm/gtc/type_ptr.hpp"
 
 #include "domain/imported_scene.h"
 #include "domain/mesh_asset.h"
 #include "domain/render_scene.h"
+#include "render/gpu_texture.h"
 
 namespace wf {
 namespace {
@@ -27,6 +29,8 @@ namespace {
 constexpr char kVertexSource[] = R"(#version 450 core
 layout(location=0) in vec3 aPosition;
 layout(location=1) in vec3 aNormal;
+layout(location=2) in vec2 aUv;
+out vec2 uv;
 uniform mat4 uModel;
 uniform mat4 uViewProjection;
 out vec3 normal;
@@ -34,6 +38,7 @@ out vec3 world;
 void main() {
   vec4 p = uModel * vec4(aPosition, 1);
   world = p.xyz;
+  uv = aUv;
   normal = mat3(transpose(inverse(uModel))) * aNormal;
   gl_Position = uViewProjection * p;
 }
@@ -45,12 +50,22 @@ in vec3 normal;
 in vec3 world;
 uniform vec3 uColor;
 uniform bool uUnlit;
+uniform bool uTextured;
+uniform sampler2D uBaseColor;
+in vec2 uv;
 out vec4 outColor;
 void main() {
   float light = uUnlit ? 1.0 : 0.28 + 0.72 *
       max(dot(normalize(normal), normalize(vec3(0.4, 0.9, 0.6))), 0.0);
+  // sRGB 纹理在过滤前解码；因子和光照保持线性。
+  // sRGB textures decode before filtering; factors and light remain linear.
   vec3 color = uColor * light;
-  outColor = vec4(color, 1);
+  if (uTextured && !uUnlit) color *= texture(uBaseColor, uv).rgb;
+  // RGBA8 视口存放显示编码值，供 ImGui 直接复制。
+  // The RGBA8 viewport holds display-encoded values for ImGui's direct copy.
+  vec3 encoded = mix(1.055 * pow(max(color, vec3(0)), vec3(1.0 / 2.4)) - 0.055,
+                     color * 12.92, lessThanEqual(color, vec3(0.0031308)));
+  outColor = vec4(uUnlit ? uColor : encoded, 1);
 }
 )";
 
@@ -177,18 +192,49 @@ class ViewportRenderer::GpuMesh {
 ViewportRenderer::ViewportRenderer() = default;
 
 bool ViewportRenderer::Prepare(const ImportedScene& scene, std::string* error) {
+  if (glGetError() != GL_NO_ERROR) {
+    *error = "Existing GL error before resource preparation";
+    return false;
+  }
   std::map<std::uint64_t, std::unique_ptr<GpuMesh>> staged;
+  std::map<std::uint64_t, std::unique_ptr<GpuImage>> images;
+  std::map<std::uint64_t, std::unique_ptr<GpuSampler>> samplers;
   for (const auto& asset : scene.meshes) {
+    for (const auto& primitive : asset->primitives) {
+      const auto& texture = primitive.base_color_texture;
+      if (!texture) continue;
+      if (!texture->image) {
+        *error = "Texture binding has no image";
+        return false;
+      }
+      const auto& source = texture->image;
+      if (!images_.contains(source->id) && !images.contains(source->id)) {
+        auto image = std::make_unique<GpuImage>(source);
+        if (!image->Upload(*source, error)) return false;
+        images.emplace(source->id, std::move(image));
+      }
+      if (!samplers_.contains(texture->id) && !samplers.contains(texture->id)) {
+        auto sampler = std::make_unique<GpuSampler>(texture);
+        if (!sampler->Upload(texture->sampler, error)) return false;
+        samplers.emplace(texture->id, std::move(sampler));
+      }
+    }
     if (meshes_.contains(asset->id) || staged.contains(asset->id)) continue;
     auto mesh = std::make_unique<GpuMesh>(asset);
     if (!mesh->Upload(*asset, error)) return false;
     staged.emplace(asset->id, std::move(mesh));
   }
   meshes_.merge(staged);
+  images_.merge(images);
+  samplers_.merge(samplers);
   return true;
 }
 
 void ViewportRenderer::CollectUnused() {
+  std::erase_if(images_,
+                [](const auto& entry) { return entry.second->expired(); });
+  std::erase_if(samplers_,
+                [](const auto& entry) { return entry.second->expired(); });
   for (auto it = meshes_.begin(); it != meshes_.end();) {
     if (it->second->expired())
       it = meshes_.erase(it);
@@ -200,6 +246,12 @@ void ViewportRenderer::CollectUnused() {
 std::size_t ViewportRenderer::gpu_bytes() const {
   std::size_t total = 0;
   for (const auto& entry : meshes_) total += entry.second->bytes();
+  return total;
+}
+
+std::size_t ViewportRenderer::texture_bytes() const {
+  std::size_t total = 0;
+  for (const auto& entry : images_) total += entry.second->bytes();
   return total;
 }
 
@@ -305,6 +357,10 @@ bool ViewportRenderer::Render(const RenderScene& scene, int w, int h,
   // state.
   glDisable(GL_SCISSOR_TEST);
   glDisable(GL_BLEND);
+  // Shader 已编码视口输出；UI 直接合成，禁止 framebuffer 再做一次编码。
+  // The shader encodes viewport output; disable a second encoding during UI.
+  glDisable(GL_FRAMEBUFFER_SRGB);
+  glBindSampler(0, 0);
   glEnable(GL_DEPTH_TEST);
   glDepthFunc(GL_LESS);
   glClearColor(0.055f, 0.071f, 0.084f, 1);
@@ -331,14 +387,24 @@ bool ViewportRenderer::Render(const RenderScene& scene, int w, int h,
                        glm::value_ptr(draw.model));
     for (std::size_t i = 0; i < gpu.primitives().size(); ++i) {
       const auto& primitive = gpu.primitives()[i];
-      const auto color = draw.tint * draw.mesh->primitives[i].base_color;
+      const auto& material = draw.mesh->primitives[i];
+      // Tint 来自 sRGB 颜色选择器；glTF factor 本身已经在线性空间。
+      // Tint is from an sRGB picker; the glTF factor is already linear.
+      const auto color =
+          glm::convertSRGBToLinear(draw.tint) * material.base_color;
+      const auto& texture = material.base_color_texture;
+      glUniform1i(glGetUniformLocation(program_, "uTextured"),
+                  texture != nullptr);
+      glUniform1i(glGetUniformLocation(program_, "uBaseColor"), 0);
+      glBindTextureUnit(0, texture ? images_.at(texture->image->id)->id() : 0);
+      glBindSampler(0, texture ? samplers_.at(texture->id)->id() : 0);
       glUniform3fv(glGetUniformLocation(program_, "uColor"), 1,
                    glm::value_ptr(color));
       glBindVertexArray(primitive.vao);
       glPolygonMode(GL_FRONT_AND_BACK, scene.wireframe ? GL_LINE : GL_FILL);
       glDrawElements(GL_TRIANGLES, primitive.count, GL_UNSIGNED_INT, nullptr);
       ++draws_;
-      if (draw.selected && !scene.wireframe) {
+      if (scene.selection_overlay && draw.selected && !scene.wireframe) {
         // 轻微前移线框深度，避免与填充三角形重叠闪烁。
         // Offsets selection lines to avoid z-fighting with filled triangles.
         glEnable(GL_POLYGON_OFFSET_LINE);
@@ -358,6 +424,8 @@ bool ViewportRenderer::Render(const RenderScene& scene, int w, int h,
   glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
   glBindVertexArray(0);
   glUseProgram(0);
+  glBindSampler(0, 0);
+  glBindTextureUnit(0, 0);
   glBindFramebuffer(GL_FRAMEBUFFER, 0);
   glDisable(GL_DEPTH_TEST);
   return true;

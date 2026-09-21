@@ -79,6 +79,7 @@ struct LogEntry {
 struct DisplayOptions {
   bool grid = true;
   bool wireframe = false;
+  bool selection_overlay = false;
 };
 
 // 管理内存中的预览场景。增删或重建场景后，必须重新获取实体指针。
@@ -102,6 +103,8 @@ class EditorState {
   bool RemoveSelected();
 
   bool Select(EntityId id);
+
+  void ClearSelection();
 
   Entity* selected();
 

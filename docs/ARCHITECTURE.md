@@ -12,6 +12,14 @@
 
 文件选择 → UTF-8 读取 → 工作线程解析 → 主线程检查代次/上传 → 发布包装根；Mesh/节点不可变共享，源矩阵与实例保留。具体所有权、支持限制及验证见 [P1.1 实现说明](learning/0002-mesh-import.md)。下文描述目标架构，不应把接口草案视为已交付能力。
 
+## 已落地的基础颜色贴图增量
+
+2026-09-21：增加纯 CPU TextureImage / TextureSampler / BaseColorTexture，MeshPrimitive 持有不可变纹理绑定。wf_import 内部使用 GlbTextures 适配 glTF 和 wf_png 解码；PNG 的元数据不进入领域层，GL/SDL 类型也不进入 CPU 数据。
+
+导入顺序变为读取 → 解析/PNG 解码 → 主线程代次检查 → Mesh/Image/Sampler 全部暂存上传 → 发布实体。GPU 图片与 sampler 分离，弱引用跟随最后一个场景/快照持有者回收。GL_SRGB8_ALPHA8 在过滤前解码，因子/Tint/光照线性运算后编码到 RGBA8 视口；ImGui 直接合成，不重复启用 framebuffer sRGB。
+
+RenderScene 增加 selection_overlay，与对象选择状态及 wireframe/grid 独立。实现与限制见 [贴图说明](learning/0003-base-color-texture.md)，不是完整 PBR 或最终 Hybrid 深度契约。
+
 ## 1. 设计输入与关键决策
 
 本设计保留开源参考讨论中的 Core/UI/平台/渲染分离原则，实施顺序按最新要求调整：**Windows 桌面框架 → Mesh → 混合渲染 → 世界资产闭环与首发**。后续按 v0.2 补资产加工/真实采集/最小 CLI，v0.3 交付实测 CUDA 优化和 Windows/Linux 证据；完整 Agent、插件、macOS/Web 后置。

@@ -24,6 +24,7 @@ struct RenderScene {
   std::vector<MeshDraw> meshes;
   bool grid = true;
   bool wireframe = false;
+  bool selection_overlay = false;
 };
 }  // namespace wf
 #endif  // WORLDFORGE_SRC_DOMAIN_RENDER_SCENE_H_

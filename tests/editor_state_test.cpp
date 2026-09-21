@@ -86,6 +86,26 @@ int main() {
   Require(state.selected()->id > second, "IDs reused after new scene");
   for (int i = 0; i < 600; ++i) state.Log("INFO", "bounded");
   Require(state.logs().size() == 500, "Log buffer unbounded");
-  std::cout << "Editor state and camera checks passed\n";
+  const auto selected_id = state.selected()->id;
+  const auto entity_count = state.entities().size();
+  const auto original_transform = state.selected()->transform.Matrix();
+  Require(!state.display_options().selection_overlay, "Overlay defaults off");
+  state.display_options().selection_overlay = true;
+  state.display_options().wireframe = true;
+  state.display_options().grid = false;
+  auto snapshot = state.BuildRenderScene(1);
+  Require(snapshot.selection_overlay && snapshot.wireframe && !snapshot.grid &&
+              snapshot.meshes[0].selected,
+          "Independent display options");
+  state.ClearSelection();
+  Require(!state.selected() && !state.selection() && !state.RemoveSelected() &&
+              state.entities().size() == entity_count,
+          "Clear selection must not remove entities");
+  Require(!state.BuildRenderScene(1).meshes[0].selected,
+          "Render snapshot retained cleared selection");
+  Require(state.Select(selected_id) &&
+              state.selected()->transform.Matrix() == original_transform,
+          "Reselection must preserve transform");
+  std::cout << "Editor state and camera checks passed\\n";
   return 0;
 }

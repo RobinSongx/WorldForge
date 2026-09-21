@@ -13,6 +13,9 @@
 #include "domain/render_scene.h"
 
 namespace wf {
+class GpuImage;
+class GpuSampler;
+
 // 所有 GL 对象只能在当前上下文的主线程创建或销毁。
 // All GL objects are created and destroyed on the main context thread.
 class ViewportRenderer {
@@ -27,8 +30,8 @@ class ViewportRenderer {
 
   bool Initialize(std::string* error);
 
-  // 先上传全部新 Mesh，再发布缓存；失败释放本次临时资源。
-  // Stages all new meshes before cache publication; failure releases staging.
+  // 先上传全部几何、图片和采样器；全部成功才发布，失败释放临时资源。
+  // Stages geometry, images and samplers; publishes only after all succeed.
   bool Prepare(const ImportedScene& scene, std::string* error);
 
   void CollectUnused();
@@ -48,6 +51,12 @@ class ViewportRenderer {
 
   std::size_t gpu_bytes() const;
 
+  std::size_t cached_images() const { return images_.size(); }
+
+  std::size_t cached_samplers() const { return samplers_.size(); }
+
+  std::size_t texture_bytes() const;
+
   // 读取像素供测试判断非空画面；不用于每帧性能统计。
   // Reads pixels for nonempty-frame tests, not per-frame profiling.
   bool HasRenderedContent() const;
@@ -57,6 +66,8 @@ class ViewportRenderer {
   bool Resize(int width, int height, std::string* error);
 
   std::map<std::uint64_t, std::unique_ptr<GpuMesh>> meshes_;
+  std::map<std::uint64_t, std::unique_ptr<GpuImage>> images_;
+  std::map<std::uint64_t, std::unique_ptr<GpuSampler>> samplers_;
   unsigned int program_ = 0;
   unsigned int grid_vao_ = 0;
   unsigned int grid_vbo_ = 0;

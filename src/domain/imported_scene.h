@@ -32,6 +32,7 @@ struct ImportedScene {
   std::size_t vertices = 0;
   std::size_t triangles = 0;
   std::size_t upload_bytes = 0;
+  std::size_t image_bytes = 0;
 };
 
 std::shared_ptr<const ImportedScene> MakeCubeScene();

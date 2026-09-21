@@ -19,6 +19,7 @@
 // The upstream C API header lives at the include root; waive its path only.
 #include "domain/imported_scene.h"
 #include "domain/mesh_asset.h"
+#include "io/glb_textures.h"
 #include "tiny_gltf_v3.h"  // NOLINT(build/include_subdir)
 
 namespace wf {
@@ -259,8 +260,9 @@ bool ValidateFeatures(const tg3_model& model, ImportedScene* scene,
   }
   if (model.materials_count || model.textures_count)
     scene->warnings.push_back(
-        "Preview uses baseColorFactor only; textures, PBR and material "
-        "extensions are not displayed. Surfaces are shown two-sided.");
+        "Base-color PNG/factor diffuse preview; metallic/roughness, normal, "
+        "occlusion, emissive and material extensions are not displayed. "
+        "Surfaces are shown two-sided.");
   if (model.cameras_count || model.lights_count)
     scene->warnings.push_back("Source cameras/lights are not used in preview.");
   if (model.extensions_used_count)
@@ -270,7 +272,7 @@ bool ValidateFeatures(const tg3_model& model, ImportedScene* scene,
 
 bool ReadPrimitive(const tg3_model& model, const tg3_primitive& source,
                    MeshPrimitive* primitive, ImportedScene* scene,
-                   std::string* error) {
+                   GlbTextures* textures, std::string* error) {
   if ((source.mode != -1 && source.mode != TG3_MODE_TRIANGLES) ||
       source.targets_count || source.ext.extensions_count)
     return Fail("Only uncompressed static TRIANGLES are supported", error);
@@ -388,6 +390,13 @@ bool ReadPrimitive(const tg3_model& model, const tg3_primitive& source,
     const auto& color = model.materials[source.material]
                             .pbr_metallic_roughness.base_color_factor;
     primitive->base_color = {color[0], color[1], color[2]};
+    const auto& info = model.materials[source.material]
+                           .pbr_metallic_roughness.base_color_texture;
+    if (info.index != -1 && uv_index == -1)
+      return Fail("Base-color texture requires TEXCOORD_0", error);
+    if (!textures->Read(model, info, scene, &primitive->base_color_texture,
+                        error))
+      return false;
   }
   scene->vertices += primitive->vertices.size();
   scene->triangles += primitive->indices.size() / 3;
@@ -397,6 +406,7 @@ bool ReadPrimitive(const tg3_model& model, const tg3_primitive& source,
 
 bool ReadMeshes(const tg3_model& model, ImportedScene* scene,
                 std::string* error) {
+  GlbTextures textures;
   for (std::uint32_t i = 0; i < model.meshes_count; ++i) {
     const auto& source = model.meshes[i];
     if (source.weights_count || !source.primitives_count)
@@ -406,7 +416,7 @@ bool ReadMeshes(const tg3_model& model, ImportedScene* scene,
     for (std::uint32_t j = 0; j < source.primitives_count; ++j) {
       MeshPrimitive primitive;
       if (!ReadPrimitive(model, source.primitives[j], &primitive, scene,
-                         error)) {
+                         &textures, error)) {
         *error = "Mesh " + std::to_string(i) + ", primitive " +
                  std::to_string(j) + ": " + *error;
         return false;

@@ -4,6 +4,7 @@
 #include "ui/studio_panels.h"
 
 #include <algorithm>
+#include <cstddef>
 #include <string>
 #include <vector>
 
@@ -16,6 +17,7 @@
 #include "imgui_internal.h"  // NOLINT(build/include_subdir)
 
 #include "domain/imported_scene.h"
+#include "domain/mesh_asset.h"
 #include "editor/editor_state.h"
 #include "render/viewport_renderer.h"
 
@@ -63,6 +65,8 @@ void DrawHeader(EditorState& editor, PanelState& panels) {
   }
   if (ImGui::BeginMenu("Scene")) {
     if (ImGui::MenuItem("Add cube")) editor.AddCube();
+    if (ImGui::MenuItem("Clear selection", nullptr, false, editor.selected()))
+      editor.ClearSelection();
     if (ImGui::MenuItem("Delete selected", nullptr, false,
                         editor.selected() != nullptr))
       editor.RemoveSelected();
@@ -186,11 +190,69 @@ void DrawImportedNodes(const ImportedScene& asset) {
   }
 }
 
+// Esc 仅作用于当前编辑窗口，不抢文本、弹窗及原生文件对话框的输入。
+// Esc applies only to the focused editor window, never text or dialog input.
+void HandleSelectionEscape(EditorState& editor, const PanelState& panels) {
+  if (ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows) &&
+      !panels.import_busy && !ImGui::GetIO().WantTextInput &&
+      !ImGui::IsAnyItemActive() &&
+      !ImGui::IsPopupOpen(nullptr, ImGuiPopupFlags_AnyPopupId |
+                                       ImGuiPopupFlags_AnyPopupLevel) &&
+      ImGui::IsKeyPressed(ImGuiKey_Escape, false))
+    editor.ClearSelection();
+}
+
+const char* WrapName(int value) {
+  if (value == 33071) return "Clamp";
+  if (value == 33648) return "Mirror";
+  return "Repeat";
+}
+
+const char* FilterName(int value) {
+  switch (value) {
+    case 9728:
+      return "Nearest";
+    case 9729:
+      return "Linear";
+    case 9984:
+      return "Nearest / nearest mip";
+    case 9985:
+      return "Linear / nearest mip";
+    case 9986:
+      return "Nearest / linear mip";
+    default:
+      return "Linear / linear mip";
+  }
+}
+
+void DrawTextures(const ImportedScene& scene) {
+  bool found = false;
+  for (std::size_t i = 0; i < scene.meshes.size(); ++i) {
+    const auto& mesh = *scene.meshes[i];
+    for (std::size_t j = 0; j < mesh.primitives.size(); ++j) {
+      const auto& texture = mesh.primitives[j].base_color_texture;
+      if (!texture) continue;
+      found = true;
+      ImGui::Text("Mesh %zu / primitive %zu", i + 1, j + 1);
+      ImGui::TextWrapped("Base color: PNG %u x %u (sRGB)",
+                         texture->image->width, texture->image->height);
+      ImGui::TextWrapped("UV0 / U: %s / V: %s",
+                         WrapName(texture->sampler.wrap_s),
+                         WrapName(texture->sampler.wrap_t));
+      ImGui::TextWrapped("Min: %s / Mag: %s",
+                         FilterName(texture->sampler.min_filter),
+                         FilterName(texture->sampler.mag_filter));
+    }
+  }
+  if (!found) ImGui::TextUnformatted("Base color: factor only (no texture)");
+}
+
 void DrawScene(EditorState& editor, PanelState& panels) {
   if (panels.hierarchy) {
     const bool shown = ImGui::Begin("Scene", &panels.hierarchy);
     ++panels.panels_drawn;
     if (shown) {
+      HandleSelectionEscape(editor, panels);
       DrawLabel("UNTITLED WORLD");
       ImGui::Separator();
       if (ImGui::Button("+ Cube")) editor.AddCube();
@@ -233,6 +295,15 @@ void DrawScene(EditorState& editor, PanelState& panels) {
       ImGui::TextWrapped(
           "%zu entities\nSelect an object to edit its transform.",
           editor.entities().size());
+      ImGui::BeginDisabled(!editor.selected());
+      if (ImGui::Button("Clear selection")) editor.ClearSelection();
+      ImGui::EndDisabled();
+      // 仅 Scene 空白可清选；视口点击尚未实现几何拾取。
+      // Only Scene background clears selection; viewport picking is not built.
+      if (!panels.import_busy && ImGui::IsWindowHovered() &&
+          !ImGui::IsAnyItemHovered() && !ImGui::IsAnyItemActive() &&
+          ImGui::IsMouseClicked(ImGuiMouseButton_Left))
+        editor.ClearSelection();
     }
     ImGui::End();
   }
@@ -284,6 +355,7 @@ void DrawInspector(EditorState& editor, PanelState& panels) {
             ImGui::Text("%zu triangles / %zu vertices",
                         entity->asset->triangles, entity->asset->vertices);
             ImGui::TextUnformatted("Base color / diffuse preview");
+            DrawTextures(*entity->asset);
           }
         }
         ImGui::Spacing();
@@ -309,12 +381,14 @@ bool DrawViewport(EditorState& editor, ViewportRenderer& renderer,
         ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
     ++panels.panels_drawn;
     if (shown) {
+      HandleSelectionEscape(editor, panels);
       ImGui::TextColored(kAccent, "PERSPECTIVE");
-      ImGui::SameLine();
-      ImGui::Checkbox("Grid", &editor.display_options().grid);
+      ImGui::Checkbox("Ground grid", &editor.display_options().grid);
       ImGui::SameLine();
       ImGui::Checkbox("Wireframe", &editor.display_options().wireframe);
       ImGui::SameLine();
+      ImGui::Checkbox("Selection overlay",
+                      &editor.display_options().selection_overlay);
       if (ImGui::Button("Frame") && editor.selected())
         editor.camera().Frame(
             *editor.selected(),
@@ -451,6 +525,10 @@ void DrawPerformance(const ViewportRenderer& renderer, PanelState& panels,
       ImGui::Text("Geometry: %zu cached meshes / %.2f MiB",
                   renderer.cached_meshes(),
                   renderer.gpu_bytes() / (1024.0 * 1024.0));
+      ImGui::TextWrapped("Textures: %zu images / %zu samplers / %.2f MiB",
+                         renderer.cached_images(), renderer.cached_samplers(),
+                         renderer.texture_bytes() / (1024.0 * 1024.0));
+      DrawLabel("Cache estimates incl. mipmaps; excludes driver/FBO memory.");
       ImGui::TextWrapped("%s", gpu.c_str());
       DrawLabel("GPU timing is not implemented in this preview.");
     }

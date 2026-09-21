@@ -121,6 +121,7 @@ RenderScene EditorState::BuildRenderScene(float aspect) const {
   scene.view_projection = camera_.Projection(aspect) * camera_.View();
   scene.grid = display_options_.grid;
   scene.wireframe = display_options_.wireframe;
+  scene.selection_overlay = display_options_.selection_overlay;
   for (const auto& entity : entities_) {
     if (!entity.visible || !entity.asset) continue;
     for (const auto& node : entity.asset->nodes) {
@@ -152,6 +153,8 @@ bool EditorState::Select(EntityId id) {
   selection_ = id;
   return true;
 }
+
+void EditorState::ClearSelection() { selection_.reset(); }
 
 Entity* EditorState::selected() {
   if (!selection_) return nullptr;
