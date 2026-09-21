@@ -1,6 +1,10 @@
 # WorldForge 软件架构
 
-日期：2026-09-20。状态：按 Windows 优先重新分期的架构基线，P0 框架与 P1.1 静态 Mesh 导入已有可运行切片，完整架构尚未实现。当前范围以 ROADMAP、PHASE_1、ADR 0003 为准；本文后续接口不代表首期需要全部实现。
+日期：2026-09-21。状态：按 Windows 优先重新分期的架构基线，P0 框架与 P1.1 静态 Mesh 导入已有可运行切片，完整架构尚未实现。当前范围以 ROADMAP、PHASE_1、ADR 0004 为准；本文后续接口不代表首期需要全部实现。
+
+## 2026-09-21 规划覆盖说明
+
+本文后续部分保留早期长期架构草案；其中旧 P0–P7 是历史阶段，不能与新功能优先级混用。现行实施按版本表：v0.1 Windows Hybrid、v0.2 有界 Asset Factory/真实采集/最小资产 CLI、v0.3 GPU 优化与 Windows/Linux 实测。Linux 核心编译提前；单资产 USD 与完整 scene/Isaac adapter 分别验收。旧“多平台统一后置”“资产优化仅按需”的排期由 ROADMAP/ADR 0004 覆盖，接口草案本身不构成实现承诺。
 
 ## 已落地的 P1.1 切片
 
@@ -10,13 +14,13 @@
 
 ## 1. 设计输入与关键决策
 
-本设计保留开源参考讨论中的 Core/UI/平台/渲染分离原则，实施顺序按最新要求调整：**Windows 桌面框架 → Mesh → 混合渲染 → 世界资产闭环与首发**。CLI/Agent、插件、多平台及 Web 后续实现，性能按实际瓶颈穿插。
+本设计保留开源参考讨论中的 Core/UI/平台/渲染分离原则，实施顺序按最新要求调整：**Windows 桌面框架 → Mesh → 混合渲染 → 世界资产闭环与首发**。后续按 v0.2 补资产加工/真实采集/最小 CLI，v0.3 交付实测 CUDA 优化和 Windows/Linux 证据；完整 Agent、插件、macOS/Web 后置。
 
 | 决策 | 当前实现与后续边界 |
 | --- | --- |
 | 桌面 | Windows 11 x64、C++20/MSVC/CMake、SDL3、ImGui docking |
 | 渲染 | Windows OpenGL 4.5 / GLSL 450；最小资源接口，不先实现完整多后端引擎 |
-| Gaussian | Windows/NVIDIA CUDA provider 优先；非 CUDA 路径与其他平台以后实现 |
+| Gaussian | Windows/NVIDIA CUDA provider 优先；Linux/NVIDIA 后续实测；非 CUDA/macOS 后置 |
 | 业务复用 | 目标 GUI 通过 Service/Command；未来 CLI/HTTP 复用，不要求首期完成协议注册 |
 | 场景 | 自有轻量模型，Visual/Collision/Semantic 分离；项目包先闭环，USD adapter 后续 |
 | 扩展 | 源码 addons、Dawn/WebGPU、Web UI 和多平台均不作为首发前提 |
@@ -25,7 +29,7 @@ Windows 以外的平台不声明已支持。SDL3/ImGui 的可移植性有助于�
 
 后续 Mac 移植需独立处理图形后端及非 CUDA Gaussian；Apple 的 OpenGL 4.1 接口已弃用，不应假定当前 GL 4.5 后端能直接运行。[Apple 文档](https://developer.apple.com/documentation/appkit/nsopenglprofileversion4_1core)。Dawn 是后续统一后端候选，不是首期依赖。[Dawn](https://github.com/google/dawn/blob/main/README.md)
 
-优先级变化见 [ADR 0003](decisions/0003-windows-world-first.md)，首期验收见 [PHASE_1](PHASE_1.md)。
+最新优先级见 [ADR 0004](decisions/0004-interview-delivery-priorities.md)，首期验收见 [PHASE_1](PHASE_1.md)。
 
 ## 2. 分层与依赖
 
@@ -140,7 +144,7 @@ v0.1 一个场景一个串行写入者；远程阶段仍由该写入者顺序处
 
 ### 4.3 后期 CLI 与 Addons
 
-P4 实现独立 `worldforge` CLI，复用当前服务且不链接 UI/GPU 依赖。JSON、schema、退出码、项目锁/收据等详细候选契约保留于 [CLI_SPEC](CLI_SPEC.md)；它们不是 Windows 首发验收项。
+v0.2 先实现最小资产入口，后续扩展独立 `worldforge` CLI，复用当前服务且不链接 UI/GPU 依赖。JSON、schema、退出码、项目锁/收据等详细候选契约保留于 [CLI_SPEC](CLI_SPEC.md)；它们不是 Windows 首发验收项。
 
 首期不要求完整 CommandRegistry/AssetProcessorRegistry；用明确的服务/命令入口避免算法写进面板即可。P4 再统一命令发现与 schema，P5 将这些边界开放给源码 addons。
 
@@ -250,15 +254,16 @@ C++ 与 TS 共享 JSON 契约测试样例，不共享内部 struct 二进制布�
 
 C++20、CMake target-based 配置、FetchContent 固定提交/hash；GLAD 使用 GL 4.5，JSON 使用 nlohmann/json、测试使用 Catch2。准确依赖 pin 随首次可编译工程提交记录。
 
-当前开关：`WF_BUILD_STUDIO=ON`、`WF_BUILD_TESTS=ON`、`WF_ENABLE_GPU_TESTS=OFF`；CUDA 开关尚未实现；P2 增加 CUDA 构建配置及 NVIDIA 发布配置。关闭 CUDA 不影响 Mesh Studio。当前不创建 CLI/USD 构建目标，分别在 P4 使用时增加。
+当前开关：`WF_BUILD_STUDIO=ON`、`WF_BUILD_TESTS=ON`、`WF_ENABLE_GPU_TESTS=OFF`；CUDA 开关尚未实现；P2 增加 CUDA 构建配置及 NVIDIA 发布配置。关闭 CUDA 不影响 Mesh Studio。当前未实现 CLI/USD 构建目标，在 v0.2 按实际使用增加。
 
 | 环境/能力 | 当前义务 | 后续义务 |
 | --- | --- | --- |
 | Windows 11 x64 / MSVC | Studio 构建、CPU 测试、实际图形会话、可分发包 | P4 CLI 与后续 addon |
 | RTX 4070 Ti 12GB | P2/P3 CUDA 混合与实测性能，报告驱动/版本 | 优化案例与更多设备验证 |
 | 无 CUDA Windows | 可启动 Mesh，Gaussian 不可用有诊断 | 如有需求再扩展 provider |
-| Linux/macOS | 无首期构建或发布门槛 | P6 后端/provider、构建、打包、真机验证 |
-| CLI/Agent | 只保留业务服务入口 | P4 无窗口协议/项目操作与脚本验收 |
+| Linux | 近期核心构建/CPU 验证；不阻塞 Windows 首发 | v0.2 无窗口资产、v0.3 NVIDIA 图形实测 |
+| macOS | 不属于本轮承诺 | 独立后端/provider、构建、打包、真机验证 |
+| CLI/Agent | 业务服务/命令分离 | v0.2 最小资产 CLI；完整 Agent 协议后置 |
 | Web | 无首期运行义务 | P7 网络/浏览器工作流 |
 
 首期测试：Domain 层级/变换/实例；导入合法性与诊断；任务取消/关闭项目后的结果；GPU resize/资源释放；Mesh/GS 前后/交叉遮挡；混合项目打包、搬移、重开和保存失败回滚。服务测试无需创建公开 CLI。

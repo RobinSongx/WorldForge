@@ -1,12 +1,12 @@
 # 首期交付：Windows Hybrid World Studio（v0.1）
 
-日期：2026-09-19。状态：首期尚未完成，P0 框架已有可运行预览；取代此前 Mesh Studio + Agent CLI 首期范围。
+日期：2026-09-21。状态：v0.1 尚未完成，当前为 0.0.2 Mesh 预览。本文件只定义 Windows 首发，不代表全部面试前 P0 能力；后续 v0.2/v0.3 范围以 ROADMAP 和 ADR 0004 为准。
 
 ## 1. 首期目标
 
 在 Windows 上完成“导入已有 Mesh/Gaussian 资产 → 检查与对齐 → 场景组合与混合显示 → 保存项目包 → 搬移/重开”的世界资产闭环，并发布可运行客户端。
 
-首期为 ROADMAP 的 P0–P3。先桌面框架，再 Mesh，再混合渲染；性能按实际问题穿插。CLI/Agent、多平台和插件不作为首发门槛。
+首发目标为 ROADMAP 的 v0.1。先完善 Mesh/Scene，再混合渲染与项目闭环。保留 GPU 基线，为 v0.3 的必交优化提供对照；Linux 核心构建提前，但 Linux 桌面发布、CLI/Agent 和插件不阻塞 Windows v0.1。
 
 ## 2. 必须交付
 
@@ -32,13 +32,13 @@ Core 不依赖 UI，场景修改走业务服务/命令；文件适配器、图�
 
 不提前实现公开 SDK、完整命令 schema 发现、远程协议、命令收据或第二渲染后端。RHI 只封装实际需要的资源和调用，不要求搭好完整引擎后才显示资产。
 
-## 4. 后续实现，不阻塞混合渲染
+## 4. 后续版本边界，不阻塞 v0.1
 
-- CLI/Agent、JSON schema/退出码、重试收据、批处理与常驻服务。
-- Linux/macOS 客户端、portable Gaussian、Dawn/WebGPU、Web UI。
+- v0.2：最小无窗口资产 CLI、JSON 结果/退出码、批处理与验证报告。完整 Agent schema、重试收据和常驻服务继续后置。
+- Linux：现在检查架构与核心构建，v0.2 复验无窗口资产流程，v0.3 取得具备条件的 NVIDIA 图形实测。macOS、portable Gaussian、Dawn/WebGPU 和 Web UI 后置。
 - addon SDK、动态库、热重载、插件市场。
-- 完整 LOD 生成/前后对比、通用几何优化、USD 导出与仿真消费。若演示资产过大，允许提前做最小简化，但不把完整 Asset Factory 当混合渲染前提。
-- 自研训练/重建、ROS、控制、自动碰撞生成与物理求解。
+- v0.2 必交 Asset Factory 切片：有界 repair、一级 LOD、凸包碰撞代理、单资产 USD 与源/派生对照；不作为开始混合渲染的前提。完整 scene USD 与 Isaac 为 P1。
+- v0.2 必交真实采集 → 外部 COLMAP/GS → WorldForge 的复现流程，早期先验证可行性。自研训练器、ROS2、控制与物理求解后置。
 - 动画/骨骼、复杂 glTF 扩展、透明 Mesh 排序、统一重光照、自动 UV 修复。
 
 ## 5. 验收脚本
@@ -51,4 +51,4 @@ Core 不依赖 UI，场景修改走业务服务/命令；文件适配器、图�
 6. 导入损坏文件、取消任务、尝试失败保存，确认有诊断且旧项目仍可恢复。
 7. 运行固定相机轨迹，记录帧时、显存及已知伪影；按 ROADMAP 的测量条件验收。
 
-通过 Windows 包和以上场景后可首发；不等待 CLI 或其他平台。计划日期由 ROADMAP 维护，按实测进度重估。
+通过 Windows 包和以上场景后可发布 v0.1；不等待完整 CLI 或 Linux 桌面包。面试前还须完成 v0.2 资产/采集链路与 v0.3 CUDA 优化/跨平台证据，不能以 v0.1 通过宣称新 P0 全部完成。计划日期由 ROADMAP 维护。

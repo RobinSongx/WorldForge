@@ -1,6 +1,13 @@
-# CLI 与 Agent 调用契约草案（后期 P4）
+# CLI 与 Agent 调用契约草案
 
-日期：2026-09-19。状态：后期候选协议，不属于 Windows 首发。按 ADR 0003，先完成桌面/Mesh/混合世界闭环，再在 P4 落实。以下命令是设计示例，当前不存在可执行程序。
+日期：2026-09-21。状态：候选协议，当前不存在产品 CLI。按 ADR 0004，v0.2 提前实现资产复现所需的最小 CLI/batch；完整 Agent 协议继续后置，不阻塞 Windows v0.1。
+
+## v0.2 的最小边界
+
+仅围绕已实现的 validate、repair、LOD、collision、单资产 USD 服务提供输入/输出参数、JSON 结果、明确退出码和批处理示例；具体命令名在实现时冻结。GUI 与 CLI 复用服务/命令，不复制算法。
+
+下面的 capabilities/schema、完整项目操作、跨进程 requestId/revision、收据和常驻能力仍是后续草案，不全部纳入 v0.2。资产处理应可无窗口执行；CUDA benchmark 若需要 GPU，则走明确启用的可选执行路径，不能宣称 GPU 测试完全无 GPU 依赖。
+
 
 ## 1. 定位
 
@@ -89,8 +96,8 @@ capabilities / schema
 
 Agent 通过参数数组启动进程，JSON 请求通过文件或 stdin 传递，避免把自然语言拼成 shell 命令。文件路径、报告与命令 metadata 作为数据处理。无需CLI 初版自建对话助手或绑定特定模型。
 
-## 6. P4 CLI 验收（不作为 Windows 首发门槛）
+## 6. 完整协议的后续验收（不作为 v0.2 最小入口门槛）
 
-先在 Windows 执行成功/错误请求，校验 stdout JSON、stderr 分离与退出码；未来平台在 P6 移植时复验。覆盖含空格/中文路径、损坏输入、未知命令、已有输出、项目忙、revision 冲突、重复 requestId、取消/超时和保存失败。无显示服务、无 CUDA、关闭 Studio 的构建也须完成资产与项目流程。
+先在 Windows 执行成功/错误请求，校验 stdout JSON、stderr 分离与退出码；Linux 资产入口在 v0.2 复验；其他平台后续分别验证。覆盖含空格/中文路径、损坏输入、未知命令、已有输出、项目忙、revision 冲突、重复 requestId、取消/超时和保存失败。无显示服务、无 CUDA、关闭 Studio 的构建也须完成资产与项目流程。
 
 同一资产与参数在 GUI/CLI 中得到一致的结构与质量报告；耗时等非确定字段不作相等比较。使用脚本模拟 Agent 完成上述全链路，并在 Studio 重开产物确认场景和 LOD。命令发现与执行从同一 registry 生成，避免帮助/schema 与实现各维护一份而漂移。

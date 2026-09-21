@@ -1,8 +1,10 @@
 # WorldForge 文档
 
-截至 2026-09-20：0.0.2 Mesh 开发预览已实现静态 GLB 导入与根对象编辑，通过本机 Windows Release 和 CPU/GPU 自动测试；原生文件选择框操作待人工验收。完整 P1 和首期尚未完成。优先级仍为 **Windows 桌面框架 → Mesh → 混合渲染 → 世界资产闭环与首发**。
+截至 2026-09-21：0.0.2 Mesh 开发预览已实现静态 GLB 导入与根对象编辑，通过本机 Windows Release 和 CPU/GPU 自动测试；原生文件选择框操作待人工验收。完整 P1 和首期尚未完成。最新规划聚焦 **Hybrid Runtime + Asset Pipeline + CUDA 优化证据**；Windows 仍先发布，Linux 架构/验证提前。新 P0/P1/P2 是功能优先级，旧 P1.1 等编号为历史任务名。
 
 ## 当前文档
+
+- [今晚任务：选择显示与基础颜色贴图](plans/2026-09-21-base-color-texture.md)：0.0.3 的首个增量，待执行。
 
 - [今晚 P1.1 范围与方案](plans/2026-09-20-mesh-import.md)：静态 GLB 导入与基础编辑的交付边界。
 - [P1.1 实现说明](learning/0002-mesh-import.md)：数据、线程、矩阵与失败隔离。
@@ -14,19 +16,20 @@
 - [构建与运行](DEVELOPMENT.md)：当前已验证的 Windows 框架、操作与限制。
 - [GUI 框架学习记录](learning/0001-gui-framework.md)：代码链路与实验。
 
-- [分期计划](ROADMAP.md)：当前实施顺序、目标时间与退出条件。
+- [路线图与版本规划](ROADMAP.md)：0.0.3 → v0.1 Hybrid → v0.2 Asset/Capture → v0.3 优化与跨平台，以及面试前裁剪顺序。
+- [ADR 0004：面向主投岗位的交付](decisions/0004-interview-delivery-priorities.md)：2026-09-21 最新规划依据。
 - [Windows 首期范围](PHASE_1.md)：必做功能、排除项与完整验收脚本。
 - [软件架构](ARCHITECTURE.md)：当前实现边界与明确标记的后续扩展。
-- [CLI / Agent 后期协议草案](CLI_SPEC.md)：主功能稳定后在 P4 落实，不阻塞首发。
-- [ADR 0003：Windows 与世界闭环优先](decisions/0003-windows-world-first.md)：最新决策，覆盖早期三平台/CLI 首期安排。
+- [CLI / Agent 协议草案](CLI_SPEC.md)：v0.2 最小资产入口与后续完整协议的边界。
+- [ADR 0003：Windows 与世界闭环优先](decisions/0003-windows-world-first.md)：历史决策，部分被 ADR 0004 覆盖。
 - [ADR 0001](decisions/0001-platform-and-service-boundaries.md)、[ADR 0002](decisions/0002-addons-and-agent-cli.md)：历史方案；保留参考，已标记被覆盖的部分。
 - [开源参考](REFERENCES.md)：同类项目借鉴点与官方来源。
 
 ## 下一步
 
-P1.1 已建立真实 Mesh 导入与编辑链路；下一步完善 P1 材质、贴图及项目保存重开，并补充原生文件选择交互验收。每次交付一个可运行功能、设计说明、验证结果与学习实验。
+历史 P1.1 已建立真实 Mesh 导入与编辑链路；下一步按 0.0.3 完善材质、贴图、Scene/命令与保存重开，补选中高亮开关和交互验收，并安排采集可行性/Linux 核心构建验证。每次交付一个可运行功能、设计说明、验证结果与学习实验。
 
-多平台、CLI/Agent、插件和 Web 仍在后续路线中；目前不创建对应空壳或将其作为 Windows 验收前提。根目录 README 提供英文快速启动，关键设计与学习记录保留在 docs。
+Linux 核心验证与最小资产 CLI 按新版本计划接入；完整 Agent、插件、macOS 和 Web 继续后置，不先创建空壳。根目录 README 提供英文快速启动，关键设计与学习记录保留在 docs。
 
 ## 后续文档
 
