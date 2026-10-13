@@ -1,6 +1,6 @@
 # Windows 开发与运行
 
-验证日期：2026-09-21。当前版本为 0.0.2-texture-dev：静态 GLB、PNG 基础色贴图和独立选择显示已实现，是 0.0.3 的增量；完整 0.0.3 和 Hybrid 首期尚未交付。
+验证日期：2026-09-28。当前版本为 0.0.2-scene-dev：静态 GLB、PNG 基础色、独立选择显示、Scene 保存/重开与未保存保护已实现。仍为 0.0.3 增量，完整 PBR、Undo、项目包和 Hybrid 尚未交付。
 
 ## 环境与构建
 
@@ -28,13 +28,15 @@ SDL_REVISION 显式固定；glad 使用 REPRODUCIBLE。tinygltf 采用固定的 
 4. 视口右键旋转、中键平移、滚轮缩放，悬停按 F 取景。Ground grid、Wireframe、Selection overlay 独立；选中叠加默认关闭，不影响 Inspector 编辑。
    Scene 的 Clear selection 按钮/菜单、Scene 空白点击、Scene/Viewport 聚焦时 Esc 可清选；文本输入、弹窗或导入忙时 Esc 不抢输入。视口点击尚未提供拾取。
 5. Console 查看失败原因与预览限制；Assets 查看文件/阶段耗时；Performance 分别查看几何缓存、图片/采样器数量和纹理含 mip 字节估算；它们不是总显存。
-6. Scene 的 New 会提示丢弃当前内存场景。导入中 New Scene 会丢弃旧结果；忙时禁用新导入。
+6. Ctrl+S / File → Save 保存 .wfscene；Ctrl+Shift+S 另存，Ctrl+O 重开。相对来源以场景目录解析，另存重算路径。
+7. New/Open/Exit 和系统关闭提供 Save/Discard/Cancel。导入或文档任务期间禁用修改与新文件动作；关闭请求等待 worker 完成。
+8. 场景修改在标题中显示 *；相机/显示开关只随显式保存记录，不单独触发未保存提示。
 
-当前对象修改**不会保存**，关闭后丢失；只保留窗口面板布局。PNG 基础色贴图 × baseColorFactor × Tint，使用线性空间漫反射和双面显示，不含完整 PBR。仅支持 glTF 2.0 GLB 的静态 TRIANGLES；动画、蒙皮、morph、稀疏、压缩、量化、透明材质、外部 URI 与结构扩展均会明确报错。文件和累计上传几何各限 256 MiB。PNG 每轴限 4096、每图 RGBA8 限 64 MiB、每次导入独立图片合计限 128 MiB；解码器分配限 192 MiB/线程，不等于总进程内存。JPEG、UV1、纹理变换和其他 PBR 通道未实现。完整边界见 [贴图实现说明](learning/0003-base-color-texture.md)。
+Scene 文件引用外部 GLB，不自动复制资产；移动/修改源文件会导致重开失败。覆盖保存保留唯一 .bak，当前不自动清理备份；.lock 由活句柄决定占用。用户已反馈此版本体验验证通过；原生选框边界场景尚无逐项记录。PNG 基础色贴图 × baseColorFactor × Tint，使用线性空间漫反射和双面显示，不含完整 PBR。仅支持 glTF 2.0 GLB 的静态 TRIANGLES；动画、蒙皮、morph、稀疏、压缩、量化、透明材质、外部 URI 与结构扩展均会明确报错。文件和累计上传几何各限 256 MiB。PNG 每轴限 4096、每图 RGBA8 限 64 MiB、每次导入独立图片合计限 128 MiB；解码器分配限 192 MiB/线程，不等于总进程内存。JPEG、UV1、纹理变换和其他 PBR 通道未实现。完整边界见 [贴图实现说明](learning/0003-base-color-texture.md)。
 
 ## 验证与打包
 
-CTest 共 8 项，覆盖解析、任务、编辑器、Cube/Mesh Studio smoke、Mesh/纹理 GPU 和真实 ImGui 输入。GPU smoke 是开发测试入口，**不是产品 CLI/Agent 功能**。
+CTest 共 10 项，覆盖解析、任务、编辑器、Cube/Mesh Studio smoke、Mesh/纹理 GPU 和真实 ImGui 输入。GPU smoke 是开发测试入口，**不是产品 CLI/Agent 功能**。
 
 ```powershell
 $p = Start-Process build/windows/Release/worldforge-studio.exe -ArgumentList '--smoke-test',"$PWD/artifacts/smoke" -WindowStyle Hidden -PassThru -Wait
@@ -45,9 +47,9 @@ $p.ExitCode
 cmake --install build/windows --config Release --prefix out/WorldForge-dev
 ```
 
-安装目录带运行库、文档和第三方许可证。开发包使用独立目录，不覆盖原有 0.0.1 Release 包。测试输出 studio.bmp 和 report.json；真实模型来源见历史 P1.1 记录；本轮结果见 [贴图验收](benchmarks/2026-09-21-base-color-texture.md)。
+本次 Scene 独立开发包位于 out/WorldForge-scene-dev，压缩包为 out/WorldForge-Windows-0.0.2-scene-dev.zip；旧 out/WorldForge-dev 保留上次版本。安装目录带运行库、文档和第三方许可证。开发包使用独立目录，不覆盖原有 0.0.1 Release 包。测试输出 studio.bmp 和 report.json；真实模型来源见历史 P1.1 记录；Scene 本轮结果见 [保存重开验收](benchmarks/2026-09-28-scene-save-open.md)，历史贴图记录仍保留。
 
-文件选择框原生操作暂未自动验收：2026-09-21 重试 Computer Use 仍报 sandbox helper 初始化失败；请在体验时检查选择/取消及开框后退出。后台工作线程和 GPU 生命周期已单独验证，不能混称原生交互全部通过。
+2026-09-28 用户反馈此版本体验验证通过。自动 UI 测试通过注入选框结果覆盖后台保存/重开与 ImGui 未保存流程；原生 Windows 选框的取消、开框后退出等边界尚无逐项操作记录。
 
 ## 代码边界
 
@@ -60,4 +62,4 @@ cmake --install build/windows --config Release --prefix out/WorldForge-dev
 - src/ui：面板展示、操作和导航。
 - src/studio：依赖组合与主线程发布；apps/studio 为入口。
 
-本仓库严格遵循 [Google C++ 规范](CODING_STYLE.md)，使用 .cpp/.h、函数空行和核心中英文注释；格式化用 check_style.py --fix。后续按 ROADMAP 完成 0.0.3 材质/Scene 保存重开，再推进 Hybrid；CLI、Linux 验证遵循 ADR 0004，完整 Agent 和插件继续后置。
+本仓库严格遵循 [Google C++ 规范](CODING_STYLE.md)，使用 .cpp/.h、函数空行和核心中英文注释；格式化用 check_style.py --fix。后续按 ROADMAP 完成 0.0.3 剩余 PBR、基础撤销与项目携带性，再推进 Hybrid；CLI、Linux 验证遵循 ADR 0004，完整 Agent 和插件继续后置。

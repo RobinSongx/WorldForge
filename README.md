@@ -3,13 +3,16 @@
 **Windows-first 3D World Runtime & Asset Infrastructure.**
 
 WorldForge is being built around a native editor for composing Mesh and Gaussian
-worlds. This **0.0.2-texture-dev preview** adds embedded PNG base-color textures and
-independent selection overlays to static GLB editing. Full PBR, project
-serialization, Gaussian rendering, CLI/Agent tools and other platforms remain planned.
+worlds. This **0.0.2-scene-dev preview** adds versioned Scene save/open,
+persistent identity, external GLB references, transactional file writes and
+unsaved-change protection to the textured Mesh editor. Full PBR, portable project
+packaging, Gaussian rendering, CLI/Agent tools and other platforms remain planned.
 This is an increment toward 0.0.3, not the completed 0.0.3 milestone.
 
 ## Available in this preview
 
+- Save/open .wfscene, Save As with rebased paths, persistent UUIDs and source hashes.
+- Unsaved-change prompts, file conflict checks and whole-scene load rollback.
 - SDL3 + Dear ImGui docking, saved panel layout and DPI-aware styling.
 - OpenGL 4.5 offscreen viewport with shared indexed Mesh geometry and a ground grid.
 - Background import of self-contained static GLB, preserving node hierarchy and instances.
@@ -30,8 +33,10 @@ Decoder allocations are capped at 192 MiB per worker thread; this is not a total
 process-memory limit. JPEG, UV1 and texture transforms are rejected when used
 by a base-color texture. Other PBR channels remain preview limitations.
 
-This is an in-memory preview: object changes are not saved on exit. Only the
-window/panel layout persists. The current shader is a diffuse preview, not PBR.
+Save explicitly before exit. Scene files reference external GLB assets; they do
+not copy or package them. Moving or changing a source can prevent reopening.
+Saved camera/display options restore on open, but navigation alone does not mark
+the world dirty. The current shader is a diffuse preview, not PBR.
 
 ## Build on Windows
 
@@ -56,6 +61,7 @@ For Visual Studio 2022, use configure preset `windows-vs2022`, build preset
 | --- | --- |
 | Orbit / pan / zoom | Right drag / middle drag / mouse wheel inside viewport |
 | Frame selected | F while hovering the viewport, or Frame button |
+| Open / Save / Save As | Ctrl+O / Ctrl+S / Ctrl+Shift+S, or File menu |
 | Import GLB | File → Import GLB..., or Assets panel |
 | Select | Model root in Scene; expand for read-only source nodes |
 | Clear selection | Scene button/menu, Scene background, or Esc in focused Scene/Viewport (outside text/dialogs) |

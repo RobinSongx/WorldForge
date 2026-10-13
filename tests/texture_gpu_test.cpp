@@ -207,7 +207,7 @@ void TestLifecycle() {
   Require(renderer.cached_images() == 1 && !image.expired(),
           "Deleting one instance must retain texture");
   editor.Select(first);
-  editor.selected()->visible = false;
+  editor.SetAppearance(editor.selected()->id, editor.selected()->color, false);
   Require(renderer.Render(editor.BuildRenderScene(1), 256, 256, &error), error);
   Require(renderer.cached_images() == 1, "Hiding must retain texture");
 
@@ -246,7 +246,7 @@ void TestLifecycle() {
               renderer.cached_meshes() == 1 && glGetError() == GL_NO_ERROR,
           "GL sampler failure must roll back and leave no stale GL errors");
   invalid_sampler.reset();
-  editor.selected()->visible = true;
+  editor.SetAppearance(editor.selected()->id, editor.selected()->color, true);
   Require(renderer.Render(editor.BuildRenderScene(1), 256, 256, &error), error);
   Require(renderer.HasRenderedContent(), "Old scene lost after upload failure");
   broken.reset();

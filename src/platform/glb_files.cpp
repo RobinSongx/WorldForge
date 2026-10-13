@@ -59,26 +59,40 @@ struct GlbFilePicker::Mailbox {
   std::optional<FileChoice> choice;
 };
 
-GlbFilePicker::GlbFilePicker() : mailbox_(std::make_shared<Mailbox>()) {}
+GlbFilePicker::GlbFilePicker(DialogProvider provider)
+    : mailbox_(std::make_shared<Mailbox>()), provider_(std::move(provider)) {}
 
 GlbFilePicker::~GlbFilePicker() {
   const std::lock_guard lock(mailbox_->mutex);
   mailbox_->active = false;
 }
 
-bool GlbFilePicker::Open(std::uint64_t generation) {
+bool GlbFilePicker::Open(std::uint64_t generation, bool scene, bool save) {
   {
     const std::lock_guard lock(mailbox_->mutex);
     if (mailbox_->busy) return false;
     mailbox_->busy = true;
     mailbox_->generation = generation;
   }
+  if (provider_) {
+    auto choice = provider_(scene, save);
+    choice.generation = generation;
+    const std::lock_guard lock(mailbox_->mutex);
+    mailbox_->choice = std::move(choice);
+    return true;
+  }
   static constexpr SDL_DialogFileFilter kFilter{"Binary glTF (*.glb)", "glb"};
+  static constexpr SDL_DialogFileFilter kSceneFilter{"WorldForge (*.wfscene)",
+                                                     "wfscene"};
   // userdata 的所有权交给回调；窗口关闭后邮箱仍有效。
   // Transfers userdata ownership to the callback; mailbox outlives the window.
   auto* context = new std::shared_ptr<Mailbox>(mailbox_);
-  SDL_ShowOpenFileDialog(Complete, context, nullptr, &kFilter, 1, nullptr,
-                         false);
+  if (save)
+    SDL_ShowSaveFileDialog(Complete, context, nullptr, &kSceneFilter, 1,
+                           nullptr);
+  else
+    SDL_ShowOpenFileDialog(Complete, context, nullptr,
+                           scene ? &kSceneFilter : &kFilter, 1, nullptr, false);
   return true;
 }
 

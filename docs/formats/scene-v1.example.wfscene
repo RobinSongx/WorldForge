@@ -1,0 +1,132 @@
+{
+  "format": "worldforge.scene",
+  "format_version": 1,
+  "scene_id": "b5361d30-95a9-4b98-a464-0d9e9f500001",
+  "scene_revision": "12",
+  "assets": [
+    {
+      "id": "b5361d30-95a9-4b98-a464-0d9e9f500010",
+      "source": {
+        "kind": "builtin",
+        "name": "cube",
+        "version": 1
+      }
+    },
+    {
+      "id": "b5361d30-95a9-4b98-a464-0d9e9f500011",
+      "source": {
+        "kind": "glb",
+        "path": {
+          "base": "scene",
+          "value": "assets/小鸭.glb"
+        },
+        "sha256": "65bf938f54d6073e619e76e007820bbf980cdc3dc0daec0d94830ffc4ae54ab5",
+        "import_profile": "static-glb-png-v1"
+      }
+    }
+  ],
+  "entities": [
+    {
+      "id": "b5361d30-95a9-4b98-a464-0d9e9f500020",
+      "name": "Cube",
+      "asset_id": "b5361d30-95a9-4b98-a464-0d9e9f500010",
+      "transform": {
+        "position": [
+          0,
+          0.5,
+          0
+        ],
+        "rotation_degrees": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "tint_srgb": [
+        0.77,
+        0.57,
+        0.29
+      ],
+      "visible": true
+    },
+    {
+      "id": "b5361d30-95a9-4b98-a464-0d9e9f500021",
+      "name": "小鸭 A",
+      "asset_id": "b5361d30-95a9-4b98-a464-0d9e9f500011",
+      "transform": {
+        "position": [
+          2,
+          0,
+          0
+        ],
+        "rotation_degrees": [
+          0,
+          25,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "tint_srgb": [
+        1,
+        1,
+        1
+      ],
+      "visible": true
+    },
+    {
+      "id": "b5361d30-95a9-4b98-a464-0d9e9f500022",
+      "name": "小鸭 B",
+      "asset_id": "b5361d30-95a9-4b98-a464-0d9e9f500011",
+      "transform": {
+        "position": [
+          -2,
+          0,
+          0
+        ],
+        "rotation_degrees": [
+          0,
+          -25,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "tint_srgb": [
+        1,
+        1,
+        1
+      ],
+      "visible": false
+    }
+  ],
+  "editor_state": {
+    "camera": {
+      "target": [
+        0,
+        0.5,
+        0
+      ],
+      "yaw_radians": 0.7,
+      "pitch_radians": 0.42,
+      "distance": 7,
+      "framing_radius": 3
+    },
+    "display": {
+      "grid": true,
+      "wireframe": false,
+      "selection_overlay": false
+    }
+  }
+}

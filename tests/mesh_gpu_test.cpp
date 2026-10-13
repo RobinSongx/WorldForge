@@ -77,12 +77,12 @@ int main(int argc, char** argv) {
   Require(renderer.cached_meshes() == mesh_count && !observed.expired(),
           "Deleting one instance freed shared geometry");
   editor.Select(first);
-  editor.selected()->visible = false;
+  editor.SetAppearance(editor.selected()->id, editor.selected()->color, false);
   Require(renderer.Render(editor.BuildRenderScene(1.25f), 800, 640, &error),
           error);
   Require(!renderer.HasRenderedContent() && renderer.draws() == 0,
           "Hidden import still drawn");
-  editor.selected()->visible = true;
+  editor.SetAppearance(editor.selected()->id, editor.selected()->color, true);
   std::shared_ptr<const wf::ImportedScene> invalid;
   Require(!wf::ImportGlb({bytes.data(), 12}, &invalid, &error),
           "Truncated input accepted");

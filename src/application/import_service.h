@@ -21,6 +21,7 @@ enum class ImportStage { kIdle, kReading, kParsing, kAwaitingUpload };
 struct ImportResult {
   std::uint64_t generation = 0;
   std::string path;
+  std::string sha256;
   std::shared_ptr<const ImportedScene> scene;
   std::string error;
   std::size_t file_bytes = 0;
@@ -46,6 +47,12 @@ class ImportService {
 
   std::optional<ImportResult> TakeResult();
 
+  // 文档 I/O 复用导入 worker；完成信号发布后方可读取任务输出。
+  // Document I/O shares this worker; read task output only after completion.
+  bool StartTask(std::function<void()> task);
+
+  bool TakeTaskDone();
+
   ImportStage stage() const;
   bool busy() const;
 
@@ -53,6 +60,8 @@ class ImportService {
   void Work();
 
   Reader reader_;
+  std::function<void()> task_;
+  bool task_done_ = false;
   mutable std::mutex mutex_;
   std::condition_variable wake_;
   bool stopping_ = false;

@@ -23,14 +23,11 @@
 
 namespace wf {
 namespace {
-constexpr ImVec4 kAccent{0.87f, 0.65f, 0.34f, 1.0f};
-constexpr ImVec4 kMuted{0.53f, 0.60f, 0.65f, 1.0f};
-
-void DrawLabel(const char* text) { ImGui::TextColored(kMuted, "%s", text); }
+void DrawLabel(const char* text) { ImGui::TextColored(kUiMuted, "%s", text); }
 
 // 只在首次运行或用户重置时重建布局，保留平时手动调整的停靠位置。
 // Rebuilds only on first use or reset, preserving user docking changes.
-void ResetDock(ImGuiID id, const ImVec2& size) {
+void ResetDock(ImGuiID id, const ImVec2& size, const PanelState& panels) {
   ImGui::DockBuilderRemoveNode(id);
   ImGui::DockBuilderAddNode(id, ImGuiDockNodeFlags_DockSpace);
   ImGui::DockBuilderSetNodeSize(id, size);
@@ -39,25 +36,39 @@ void ResetDock(ImGuiID id, const ImVec2& size) {
   ImGuiID right = 0;
   ImGuiID bottom = 0;
   ImGuiID bottom_right = 0;
-  ImGui::DockBuilderSplitNode(center, ImGuiDir_Left, .18f, &left, &center);
-  ImGui::DockBuilderSplitNode(center, ImGuiDir_Right, .25f, &right, &center);
-  ImGui::DockBuilderSplitNode(center, ImGuiDir_Down, .25f, &bottom, &center);
-  ImGui::DockBuilderSplitNode(bottom, ImGuiDir_Right, .40f, &bottom_right,
-                              &bottom);
+  ImGui::DockBuilderSplitNode(center, ImGuiDir_Left, .17f, &left, &center);
+  ImGui::DockBuilderSplitNode(center, ImGuiDir_Right, .22f, &right, &center);
+  const bool show_diagnostics =
+      panels.console || panels.assets || panels.performance;
+  if (show_diagnostics) {
+    ImGui::DockBuilderSplitNode(center, ImGuiDir_Down, .20f, &bottom, &center);
+    if (panels.performance && (panels.console || panels.assets))
+      ImGui::DockBuilderSplitNode(bottom, ImGuiDir_Right, .38f, &bottom_right,
+                                  &bottom);
+  }
   ImGui::DockBuilderDockWindow("Scene", left);
   ImGui::DockBuilderDockWindow("Inspector", right);
   ImGui::DockBuilderDockWindow("Viewport", center);
-  ImGui::DockBuilderDockWindow("Console", bottom);
-  ImGui::DockBuilderDockWindow("Assets", bottom);
-  ImGui::DockBuilderDockWindow("Performance", bottom_right);
+  if (panels.console) ImGui::DockBuilderDockWindow("Console", bottom);
+  if (panels.assets) ImGui::DockBuilderDockWindow("Assets", bottom);
+  if (panels.performance)
+    ImGui::DockBuilderDockWindow("Performance",
+                                 bottom_right ? bottom_right : bottom);
   ImGui::DockBuilderFinish(id);
 }
 
 void DrawHeader(EditorState& editor, PanelState& panels) {
   if (!ImGui::BeginMainMenuBar()) return;
-  ImGui::TextColored(kAccent, "W O R L D F O R G E");
+  ImGui::TextColored(kUiAccent, "WORLDFORGE");
   ImGui::Dummy({14, 0});
   if (ImGui::BeginMenu("File")) {
+    if (ImGui::MenuItem("New scene")) panels.new_requested = true;
+    if (ImGui::MenuItem("Open scene...", "Ctrl+O"))
+      panels.open_requested = true;
+    if (ImGui::MenuItem("Save", "Ctrl+S")) panels.save_requested = true;
+    if (ImGui::MenuItem("Save As...", "Ctrl+Shift+S"))
+      panels.save_as_requested = true;
+    ImGui::Separator();
     if (ImGui::MenuItem("Import GLB...", nullptr, false, !panels.import_busy))
       panels.import_requested = true;
     if (ImGui::MenuItem("Exit")) panels.quit_requested = true;
@@ -75,13 +86,16 @@ void DrawHeader(EditorState& editor, PanelState& panels) {
   if (ImGui::BeginMenu("View")) {
     ImGui::MenuItem("Scene", nullptr, &panels.hierarchy);
     ImGui::MenuItem("Inspector", nullptr, &panels.inspector);
-    ImGui::MenuItem("Console", nullptr, &panels.console);
-    ImGui::MenuItem("Assets", nullptr, &panels.assets);
-    ImGui::MenuItem("Performance", nullptr, &panels.performance);
+    if (ImGui::MenuItem("Console", nullptr, &panels.console))
+      panels.reset_layout = true;
+    if (ImGui::MenuItem("Assets", nullptr, &panels.assets))
+      panels.reset_layout = true;
+    if (ImGui::MenuItem("Performance", nullptr, &panels.performance))
+      panels.reset_layout = true;
     if (ImGui::MenuItem("Reset layout")) panels.reset_layout = true;
     ImGui::EndMenu();
   }
-  const char* status = "WINDOWS / MESH PREVIEW";
+  const char* status = panels.document_name.c_str();
   const float status_width = ImGui::CalcTextSize(status).x;
   if (ImGui::GetWindowWidth() > ImGui::GetCursorPosX() + status_width + 30) {
     ImGui::SameLine(ImGui::GetWindowWidth() - status_width - 40);
@@ -90,51 +104,6 @@ void DrawHeader(EditorState& editor, PanelState& panels) {
   ImGui::EndMainMenuBar();
 }
 }  // namespace
-
-void ApplyTheme(float scale) {
-  // 先恢复基准，再按当前 DPI 缩放；避免切换显示器时尺寸反复累乘。
-  // Resets the base style before DPI scaling to avoid repeated multiplication.
-  ImGui::GetStyle() = ImGuiStyle{};
-  ImGui::StyleColorsDark();
-  auto& style = ImGui::GetStyle();
-  style.FontSizeBase = 14.0f;
-  style.WindowRounding = 4;
-  style.FrameRounding = 3;
-  style.GrabRounding = 3;
-  style.TabRounding = 3;
-  style.WindowBorderSize = 1;
-  style.FrameBorderSize = 0;
-  style.WindowPadding = {14, 12};
-  style.FramePadding = {8, 5};
-  style.ItemSpacing = {8, 8};
-  auto* colors = style.Colors;
-  colors[ImGuiCol_WindowBg] = {.068f, .079f, .092f, 1};
-  colors[ImGuiCol_ChildBg] = colors[ImGuiCol_WindowBg];
-  colors[ImGuiCol_PopupBg] = {.09f, .105f, .12f, 1};
-  colors[ImGuiCol_Border] = {.16f, .19f, .22f, 1};
-  colors[ImGuiCol_TitleBg] = {.075f, .09f, .10f, 1};
-  colors[ImGuiCol_TitleBgActive] = {.12f, .14f, .16f, 1};
-  colors[ImGuiCol_MenuBarBg] = {.048f, .059f, .07f, 1};
-  colors[ImGuiCol_Header] = {.18f, .22f, .25f, 1};
-  colors[ImGuiCol_HeaderHovered] = {.25f, .29f, .31f, 1};
-  colors[ImGuiCol_HeaderActive] = {.32f, .28f, .21f, 1};
-  colors[ImGuiCol_FrameBg] = {.115f, .14f, .16f, 1};
-  colors[ImGuiCol_FrameBgHovered] = {.19f, .23f, .26f, 1};
-  colors[ImGuiCol_Button] = {.19f, .23f, .26f, 1};
-  colors[ImGuiCol_ButtonHovered] = {.32f, .29f, .23f, 1};
-  colors[ImGuiCol_ButtonActive] = {.43f, .33f, .20f, 1};
-  colors[ImGuiCol_CheckMark] = kAccent;
-  colors[ImGuiCol_SliderGrab] = kAccent;
-  colors[ImGuiCol_SliderGrabActive] = kAccent;
-  colors[ImGuiCol_Tab] = {.09f, .11f, .13f, 1};
-  colors[ImGuiCol_TabSelected] = {.17f, .20f, .23f, 1};
-  colors[ImGuiCol_TabHovered] = {.30f, .26f, .20f, 1};
-  colors[ImGuiCol_DockingPreview] = {.87f, .65f, .34f, .3f};
-  colors[ImGuiCol_Text] = {.88f, .91f, .93f, 1};
-  colors[ImGuiCol_TextDisabled] = kMuted;
-  style.ScaleAllSizes(scale);
-  style.FontScaleDpi = scale;
-}
 
 namespace {
 void DrawDock(PanelState& panels) {
@@ -152,12 +121,10 @@ void DrawDock(PanelState& panels) {
                    ImGuiWindowFlags_NoBringToFrontOnFocus |
                    ImGuiWindowFlags_NoNavFocus);
   ImGui::PopStyleVar(3);
-  const auto dock_id = ImGui::GetID("WorldForgeDock");
+  const auto dock_id = ImGui::GetID("WorldForgeDockV2");
   if (!ImGui::DockBuilderGetNode(dock_id) || panels.reset_layout) {
-    ResetDock(dock_id, main->WorkSize);
+    ResetDock(dock_id, main->WorkSize, panels);
     panels.reset_layout = false;
-    panels.hierarchy = panels.inspector = panels.console = panels.performance =
-        panels.assets = true;
   }
   ImGui::DockSpace(dock_id, ImVec2(0, 0), ImGuiDockNodeFlags_None);
   ImGui::End();
@@ -253,24 +220,15 @@ void DrawScene(EditorState& editor, PanelState& panels) {
     ++panels.panels_drawn;
     if (shown) {
       HandleSelectionEscape(editor, panels);
-      DrawLabel("UNTITLED WORLD");
+      DrawLabel(panels.document_name.c_str());
       ImGui::Separator();
       if (ImGui::Button("+ Cube")) editor.AddCube();
       ImGui::SameLine();
-      if (ImGui::Button("New")) ImGui::OpenPopup("New scene?");
-      if (ImGui::BeginPopupModal("New scene?", nullptr,
-                                 ImGuiWindowFlags_AlwaysAutoResize)) {
-        ImGui::TextUnformatted(
-            "Discard this in-memory scene?\nProject saving arrives in the Mesh "
-            "milestone.");
-        if (ImGui::Button("Discard and create")) {
-          editor.NewScene();
-          ImGui::CloseCurrentPopup();
-        }
-        ImGui::SameLine();
-        if (ImGui::Button("Cancel")) ImGui::CloseCurrentPopup();
-        ImGui::EndPopup();
-      }
+      if (ImGui::Button("New")) panels.new_requested = true;
+      ImGui::BeginDisabled(panels.import_busy);
+      if (ImGui::Button("Import GLB...", ImVec2(-1, 0)))
+        panels.import_requested = true;
+      ImGui::EndDisabled();
       ImGui::Spacing();
       for (const auto& entity : editor.entities()) {
         ImGui::PushID(static_cast<int>(entity.id));
@@ -292,9 +250,7 @@ void DrawScene(EditorState& editor, PanelState& panels) {
       ImGui::Spacing();
       ImGui::Separator();
       DrawLabel("SCENE CONTENT");
-      ImGui::TextWrapped(
-          "%zu entities\nSelect an object to edit its transform.",
-          editor.entities().size());
+      ImGui::Text("%zu objects", editor.entities().size());
       ImGui::BeginDisabled(!editor.selected());
       if (ImGui::Button("Clear selection")) editor.ClearSelection();
       ImGui::EndDisabled();
@@ -316,9 +272,11 @@ void DrawInspector(EditorState& editor, PanelState& panels) {
     if (shown) {
       if (auto* entity = editor.selected()) {
         DrawLabel("SELECTED OBJECT");
-        ImGui::TextColored(kAccent, "%s", entity->name.c_str());
+        ImGui::TextColored(kUiAccent, "%s", entity->name.c_str());
         ImGui::Separator();
-        ImGui::Checkbox("Visible", &entity->visible);
+        bool visible = entity->visible;
+        if (ImGui::Checkbox("Visible", &visible))
+          editor.SetAppearance(entity->id, entity->color, visible);
         if (ImGui::CollapsingHeader("Transform",
                                     ImGuiTreeNodeFlags_DefaultOpen)) {
           // 先编辑副本，通过校验后再提交，非法输入不会破坏原变换。
@@ -344,9 +302,12 @@ void DrawInspector(EditorState& editor, PanelState& panels) {
           }
         }
         if (ImGui::CollapsingHeader("Appearance",
-                                    ImGuiTreeNodeFlags_DefaultOpen))
-          ImGui::ColorEdit3("Tint", glm::value_ptr(entity->color),
-                            ImGuiColorEditFlags_NoInputs);
+                                    ImGuiTreeNodeFlags_DefaultOpen)) {
+          auto color = entity->color;
+          if (ImGui::ColorEdit3("Tint", glm::value_ptr(color),
+                                ImGuiColorEditFlags_NoInputs))
+            editor.SetAppearance(entity->id, color, entity->visible);
+        }
         if (ImGui::CollapsingHeader("Geometry",
                                     ImGuiTreeNodeFlags_DefaultOpen)) {
           if (entity->asset) {
@@ -382,20 +343,25 @@ bool DrawViewport(EditorState& editor, ViewportRenderer& renderer,
     ++panels.panels_drawn;
     if (shown) {
       HandleSelectionEscape(editor, panels);
-      ImGui::TextColored(kAccent, "PERSPECTIVE");
+      ImGui::TextColored(kUiAccent, "PERSPECTIVE");
+      ImGui::SameLine();
+      ImGui::TextDisabled("  MESH EDITOR");
+      ImGui::Separator();
       ImGui::Checkbox("Ground grid", &editor.display_options().grid);
       ImGui::SameLine();
       ImGui::Checkbox("Wireframe", &editor.display_options().wireframe);
       ImGui::SameLine();
       ImGui::Checkbox("Selection overlay",
                       &editor.display_options().selection_overlay);
+      ImGui::SameLine();
+      ImGui::BeginDisabled(!editor.selected());
       if (ImGui::Button("Frame") && editor.selected())
         editor.camera().Frame(
             *editor.selected(),
             static_cast<float>(panels.viewport_width) / panels.viewport_height);
+      ImGui::EndDisabled();
       ImGui::SameLine();
       if (ImGui::Button("Reset camera")) editor.camera() = OrbitCamera{};
-      ImGui::TextWrapped("%s", panels.import_status.c_str());
       const auto size = ImGui::GetContentRegionAvail();
       if (size.x > 1 && size.y > 1) {
         const auto origin = ImGui::GetCursorScreenPos();
@@ -427,7 +393,7 @@ bool DrawViewport(EditorState& editor, ViewportRenderer& renderer,
         // 相机变化在下一帧渲染时生效。
         // Consumes navigation only over the viewport, not over other panels.
         // Camera changes affect the next rendered frame.
-        if (ImGui::IsItemHovered()) {
+        if (!panels.document_busy && ImGui::IsItemHovered()) {
           if (ImGui::IsMouseDragging(ImGuiMouseButton_Right))
             editor.camera().Orbit(io.MouseDelta.x, io.MouseDelta.y);
           if (ImGui::IsMouseDragging(ImGuiMouseButton_Middle))
@@ -440,13 +406,26 @@ bool DrawViewport(EditorState& editor, ViewportRenderer& renderer,
                                       panels.viewport_height);
         }
         auto* draw = ImGui::GetWindowDrawList();
-        draw->AddText(ImVec2(origin.x + 14, origin.y + 14),
-                      IM_COL32(155, 175, 184, 255), "WORLD / 01");
-        draw->AddText(ImVec2(origin.x + 14, origin.y + size.y - 26),
+        const auto metrics = CurrentUiMetrics();
+        const auto card_min = ImVec2(origin.x + metrics.overlay_gap,
+                                     origin.y + metrics.overlay_gap);
+        const auto card_max =
+            ImVec2(card_min.x +
+                       std::max(1.0f, std::min(size.x - 2 * metrics.overlay_gap,
+                                               380.0f * metrics.unit)),
+                   card_min.y + metrics.overlay_height);
+        draw->AddRectFilled(card_min, card_max, IM_COL32(22, 27, 32, 226),
+                            7 * metrics.unit);
+        draw->PushClipRect(card_min, card_max, true);
+        draw->AddText(ImVec2(card_min.x + 12 * metrics.unit,
+                             card_min.y + 12 * metrics.unit),
+                      IM_COL32(205, 214, 219, 255),
+                      panels.import_status.c_str());
+        draw->PopClipRect();
+        draw->AddText(ImVec2(origin.x + 14 * metrics.unit,
+                             origin.y + size.y - 27 * metrics.unit),
                       IM_COL32(155, 175, 184, 255),
                       "RMB orbit   MMB pan   Wheel zoom   F frame");
-        draw->AddCircleFilled(ImVec2(origin.x + size.x - 20, origin.y + 20), 4,
-                              IM_COL32(114, 193, 153, 255));
       }
     }
     ImGui::End();
@@ -463,7 +442,7 @@ void DrawConsole(const EditorState& editor, PanelState& panels) {
       ImGui::Separator();
       ImGui::BeginChild("LogScroll", ImVec2(0, 0));
       for (const auto& log : editor.logs()) {
-        ImGui::TextColored(log.level == "WARN" ? kAccent : kMuted, "[%s]",
+        ImGui::TextColored(log.level == "WARN" ? kUiAccent : kUiMuted, "[%s]",
                            log.level.c_str());
         ImGui::SameLine();
         ImGui::TextWrapped("%s", log.message.c_str());
@@ -512,7 +491,7 @@ void DrawPerformance(const ViewportRenderer& renderer, PanelState& panels,
     const bool shown = ImGui::Begin("Performance", &panels.performance);
     ++panels.panels_drawn;
     if (shown) {
-      ImGui::TextColored(kAccent, "%.1f FPS", ImGui::GetIO().Framerate);
+      ImGui::TextColored(kUiAccent, "%.1f FPS", ImGui::GetIO().Framerate);
       DrawLabel("CPU FRAME INTERVAL");
       ImGui::PlotLines(
           "##frames", panels.frame_times.data(),
@@ -540,16 +519,30 @@ void DrawPerformance(const ViewportRenderer& renderer, PanelState& panels,
 bool DrawStudio(EditorState& editor, ViewportRenderer& renderer,
                 PanelState& panels, const std::string& gpu,
                 std::string* error) {
+  const auto& io = ImGui::GetIO();
+  if (!panels.document_busy && !io.WantTextInput &&
+      !ImGui::IsPopupOpen(nullptr, ImGuiPopupFlags_AnyPopupId) && io.KeyCtrl) {
+    if (ImGui::IsKeyPressed(ImGuiKey_O, false)) panels.open_requested = true;
+    if (ImGui::IsKeyPressed(ImGuiKey_S, false)) {
+      panels.save_as_requested = io.KeyShift;
+      panels.save_requested = !io.KeyShift;
+    }
+  }
+  ImGui::BeginDisabled(panels.document_busy);
   DrawHeader(editor, panels);
   DrawDock(panels);
   // 先处理场景与属性编辑，再绘制视口，使这些修改在本帧可见。
   // Applies scene/inspector edits before rendering them in this frame.
   DrawScene(editor, panels);
   DrawInspector(editor, panels);
-  if (!DrawViewport(editor, renderer, panels, error)) return false;
+  if (!DrawViewport(editor, renderer, panels, error)) {
+    ImGui::EndDisabled();
+    return false;
+  }
   DrawConsole(editor, panels);
   DrawAssets(editor, panels);
   DrawPerformance(renderer, panels, gpu);
+  ImGui::EndDisabled();
   return true;
 }
 }  // namespace wf

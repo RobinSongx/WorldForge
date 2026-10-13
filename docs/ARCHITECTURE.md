@@ -8,7 +8,7 @@
 
 ## 已落地的 P1.1 切片
 
-当前真实 target 为 wf_domain、wf_import、wf_editor、wf_renderer、wf_platform、wf_imgui 和 worldforge-studio。wf_import 暂合并内存 GLB 适配器与单任务服务；Renderer 已消费只读 RenderScene，不依赖 EditorState。业务 ID 仍为会话内整数，未实现持久 UUID、Command/Undo、项目锁或保存。预览直接使用 GLM OpenGL 投影和基础漫反射，尚未实现下文的统一深度/HDR/PBR 契约。
+当前真实 target 为 wf_domain、wf_import、wf_editor、wf_renderer、wf_platform、wf_imgui 和 worldforge-studio。wf_import 暂合并内存 GLB 适配器与单任务服务；Renderer 已消费只读 RenderScene，不依赖 EditorState。此段为最初 Mesh 切片：2026-09-28 已在会话整数 ID 外增加持久 UUID、Scene 文件保存重开与单写者租约；Command/Undo 和完整项目包仍未实现。预览直接使用 GLM OpenGL 投影和基础漫反射，尚未实现下文的统一深度/HDR/PBR 契约。
 
 文件选择 → UTF-8 读取 → 工作线程解析 → 主线程检查代次/上传 → 发布包装根；Mesh/节点不可变共享，源矩阵与实例保留。具体所有权、支持限制及验证见 [P1.1 实现说明](learning/0002-mesh-import.md)。下文描述目标架构，不应把接口草案视为已交付能力。
 
@@ -19,6 +19,14 @@
 导入顺序变为读取 → 解析/PNG 解码 → 主线程代次检查 → Mesh/Image/Sampler 全部暂存上传 → 发布实体。GPU 图片与 sampler 分离，弱引用跟随最后一个场景/快照持有者回收。GL_SRGB8_ALPHA8 在过滤前解码，因子/Tint/光照线性运算后编码到 RGBA8 视口；ImGui 直接合成，不重复启用 framebuffer sRGB。
 
 RenderScene 增加 selection_overlay，与对象选择状态及 wireframe/grid 独立。实现与限制见 [贴图说明](learning/0003-base-color-texture.md)，不是完整 PBR 或最终 Hybrid 深度契约。
+
+## 已落地的 Scene 保存与重新打开增量
+
+2026-09-28：[实现说明](learning/0004-scene-save-open.md) 记录 SceneDocument/纯值快照、外部 GLB 引用、UUID、来源 SHA256、事务保存与整场景 GPU 准备后发布。相机/显示作为可选 editor_state 同文件记录；资产缺失或变化时打开失败并保留旧场景。
+
+ImportService 复用单 worker，DocumentController 协调菜单、dirty、关闭和候选发布；平台层封装 Windows CNG、规范路径、写锁和 ReplaceFileW。仅 Windows 已验证；运行中的任务等待完成，单操作门禁替代额外 operation token。详细取舍见实现说明第 7 节。
+
+该切片对应 [设计基线](plans/2026-09-21-scene-save-open.md) 和 [ADR 0005](decisions/0005-scene-save-open-increment.md)，不降低长期完整项目搬移、基础撤销或 Hybrid 首发门槛。
 
 ## 1. 设计输入与关键决策
 

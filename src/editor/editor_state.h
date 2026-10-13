@@ -14,33 +14,18 @@
 
 #include "domain/imported_scene.h"
 #include "domain/render_scene.h"
+#include "domain/scene_document.h"
 
 namespace wf {
-
-using EntityId = std::uint64_t;
-
-// 局部变换：平移采用世界单位，欧拉角以度为单位。
-// Local transform: translation uses world units; Euler angles use degrees.
-struct Transform {
-  glm::vec3 position{0.0f};
-  glm::vec3 rotation_degrees{0.0f};
-  glm::vec3 scale{1.0f};
-  glm::mat4 Matrix() const;
-};
-
-struct Entity {
-  EntityId id;
-  std::string name;
-  Transform transform;
-  glm::vec3 color{0.77f, 0.57f, 0.29f};
-  bool visible = true;
-  std::shared_ptr<const ImportedScene> asset;
-};
 
 // 绕目标点旋转的相机；内部角度为弧度，拖动增量为逻辑像素。
 // Orbits a target; internal angles are radians, drag deltas logical pixels.
 class OrbitCamera {
  public:
+  CameraState CaptureState() const;
+
+  bool RestoreState(const CameraState& state);
+
   glm::vec3 Eye() const;
 
   glm::mat4 View() const;
@@ -76,25 +61,45 @@ struct LogEntry {
   std::string message;
 };
 
-struct DisplayOptions {
-  bool grid = true;
-  bool wireframe = false;
-  bool selection_overlay = false;
-};
-
 // 管理内存中的预览场景。增删或重建场景后，必须重新获取实体指针。
 // Owns the in-memory scene. Reacquire entity pointers after add, remove,
 // or new-scene operations; do not retain them across these edits.
 class EditorState {
  public:
-  EditorState();
+  explicit EditorState(IdGenerator ids = {});
+
+  SceneSnapshot CaptureSnapshot() const;
+
+  bool BuildDocument(const SceneSnapshot& snapshot,
+                     const std::vector<AssetRecord>& assets,
+                     SceneDocument* document, std::string* error) const;
+
+  void PublishDocument(SceneDocument document, const SceneSnapshot& snapshot);
+
+  bool CanAddAsset(const ImportedScene& asset) const;
+
+  bool SetAppearance(EntityId id, const glm::vec3& color, bool visible);
+
+  bool dirty() const {
+    return !saved_ || document_.revision != saved_revision_;
+  }
+
+  void MarkUnsaved() { saved_ = false; }
+
+  void MarkSaved() {
+    saved_ = true;
+    saved_revision_ = document_.revision;
+  }
+
+  std::uint64_t revision() const { return document_.revision; }
 
   EntityId AddCube();
 
   // asset 必须是已校验且已完成 GPU 准备的不可变结果；仅主线程调用。
   // Main thread only; asset must be validated, immutable and GPU-prepared.
   EntityId AddImported(std::string name,
-                       std::shared_ptr<const ImportedScene> asset);
+                       std::shared_ptr<const ImportedScene> asset,
+                       AssetSource source = {});
 
   RenderScene BuildRenderScene(float aspect) const;
 
@@ -105,8 +110,6 @@ class EditorState {
   bool Select(EntityId id);
 
   void ClearSelection();
-
-  Entity* selected();
 
   const Entity* selected() const;
 
@@ -120,7 +123,7 @@ class EditorState {
 
   void Log(std::string level, std::string message);
 
-  const std::vector<Entity>& entities() const { return entities_; }
+  const std::vector<Entity>& entities() const { return document_.entities; }
 
   const std::vector<LogEntry>& logs() const { return logs_; }
 
@@ -135,7 +138,10 @@ class EditorState {
   const DisplayOptions& display_options() const { return display_options_; }
 
  private:
-  std::vector<Entity> entities_;
+  SceneDocument document_;
+  IdGenerator ids_;
+  std::uint64_t saved_revision_ = 0;
+  bool saved_ = false;
   std::vector<LogEntry> logs_;
   std::optional<EntityId> selection_;
   EntityId next_id_ = 1;

@@ -9,6 +9,7 @@
 
 #include "editor/editor_state.h"
 #include "render/viewport_renderer.h"
+#include "ui/editor_theme.h"
 
 namespace wf {
 // 仅保存面板开关、布局和瞬时统计；不持有场景资产。
@@ -16,11 +17,17 @@ namespace wf {
 struct PanelState {
   bool hierarchy = true;
   bool inspector = true;
-  bool console = true;
-  bool performance = true;
-  bool assets = true;
+  bool console = false;
+  bool performance = false;
+  bool assets = false;
   bool reset_layout = false;
   bool quit_requested = false;
+  bool new_requested = false;
+  bool open_requested = false;
+  bool save_requested = false;
+  bool save_as_requested = false;
+  bool document_busy = false;
+  std::string document_name = "Untitled *";
   bool import_requested = false;
   bool import_busy = false;
   std::string import_status = "Ready to import a static GLB";
@@ -33,10 +40,6 @@ struct PanelState {
   float image_x = 0;
   float image_y = 0;
 };
-
-// 从基础主题重新计算 DPI 样式，可重复调用而不累积缩放。
-// Rebuilds DPI styling from the base theme without cumulative scaling.
-void ApplyTheme(float scale);
 
 // 绘制所有面板并提交编辑操作；需要当前 ImGui 帧和 GL 上下文。
 // 渲染失败时返回 false，并写入非空的 error。

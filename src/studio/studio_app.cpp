@@ -24,8 +24,10 @@
 #include "application/import_service.h"
 #include "editor/editor_state.h"
 #include "platform/glb_files.h"
+#include "platform/scene_storage.h"
 #include "platform/sdl_host.h"
 #include "render/viewport_renderer.h"
+#include "studio/document_controller.h"
 #include "ui/studio_panels.h"
 
 namespace wf {
@@ -104,7 +106,7 @@ void ProcessImports(EditorState& editor, ViewportRenderer& renderer,
                     PanelState& panels) {
   if (panels.import_requested) {
     panels.import_requested = false;
-    if (!service.busy() && !picker.busy()) {
+    if (!panels.document_busy && !service.busy() && !picker.busy()) {
       picker.Open(editor.generation());
       panels.import_status = "Choosing GLB...";
     }
@@ -118,7 +120,12 @@ void ProcessImports(EditorState& editor, ViewportRenderer& renderer,
     } else if (choice->path.empty()) {
       panels.import_status = "Import cancelled";
     } else {
-      service.Start(std::move(choice->path), choice->generation);
+      std::string canonical;
+      std::string error;
+      if (CanonicalScenePath(choice->path, false, &canonical, &error))
+        service.Start(std::move(canonical), choice->generation);
+      else
+        editor.Log("ERROR", error);
     }
   }
   switch (service.stage()) {
@@ -140,11 +147,21 @@ void ProcessImports(EditorState& editor, ViewportRenderer& renderer,
       editor.Log("INFO", panels.import_status);
     } else {
       const auto start = std::chrono::steady_clock::now();
-      if (result->scene && renderer.Prepare(*result->scene, &result->error)) {
+      if (result->scene && editor.CanAddAsset(*result->scene) &&
+          renderer.Prepare(*result->scene, &result->error)) {
         const auto separator = result->path.find_last_of("/\\");
         const auto name = result->path.substr(
             separator == std::string::npos ? 0 : separator + 1);
-        editor.AddImported(name, result->scene);
+        AssetSource source;
+        source.path = result->path;
+        source.sha256 = result->sha256;
+        const auto added = editor.AddImported(name, result->scene, source);
+        if (!added) {
+          panels.import_status =
+              "Import rejected: document capacity or identity";
+          editor.Log("ERROR", panels.import_status);
+          return;
+        }
         editor.camera().Frame(
             *editor.selected(),
             static_cast<float>(panels.viewport_width) / panels.viewport_height);
@@ -154,6 +171,8 @@ void ProcessImports(EditorState& editor, ViewportRenderer& renderer,
         if (!result->scene->warnings.empty())
           panels.import_status += " (preview limitations: see Console)";
       } else {
+        if (result->error.empty())
+          result->error = "Scene asset budget exceeded";
         panels.import_status = "Import failed: " + result->error;
         editor.Log("WARN", panels.import_status);
       }
@@ -228,6 +247,7 @@ int RunStudio(bool smoke_test, const std::string& output, std::string* error,
   PanelState panels;
   ImportService imports(ReadGlbFile);
   GlbFilePicker picker;
+  DocumentController documents;
   const bool mesh_smoke = smoke_test && !mesh_path.empty();
   bool mesh_ready = false;
   if (mesh_smoke) imports.Start(mesh_path, editor.generation());
@@ -248,19 +268,22 @@ int RunStudio(bool smoke_test, const std::string& output, std::string* error,
   float yaw_before_input{};
   // 每帧依次处理事件、构建 UI/离屏视口、合成窗口，最后交换缓冲。
   // Each frame handles events, builds UI/viewport, composites, then swaps.
-  while (running && !panels.quit_requested) {
+  while (running && !documents.finished()) {
     SDL_Event event;
     while (SDL_PollEvent(&event)) {
       ImGui_ImplSDL3_ProcessEvent(&event);
       if (event.type == SDL_EVENT_QUIT ||
           (event.type == SDL_EVENT_WINDOW_CLOSE_REQUESTED &&
            event.window.windowID == SDL_GetWindowID(host.window())))
-        running = false;
+        panels.quit_requested = true;
       if (event.type == SDL_EVENT_WINDOW_DISPLAY_SCALE_CHANGED)
         ApplyTheme(host.scale());
     }
     if (!running) break;
     ProcessImports(editor, renderer, imports, picker, panels);
+    documents.Update(editor, renderer, imports, panels, picker.busy());
+    const auto title = "WorldForge | " + panels.document_name;
+    SDL_SetWindowTitle(host.window(), title.c_str());
     if (mesh_smoke && !mesh_ready) {
       if (std::chrono::steady_clock::now() > import_deadline) {
         *error = "Mesh smoke import timed out";
@@ -323,6 +346,7 @@ int RunStudio(bool smoke_test, const std::string& output, std::string* error,
     }
     ImGui::NewFrame();
     if (!DrawStudio(editor, renderer, panels, gpu, error)) return 1;
+    documents.DrawPrompts(editor, imports);
     if (smoke_test && frame == 28)
       camera_input_verified = editor.camera().yaw() != yaw_before_input;
     ImGui::Render();
@@ -345,7 +369,7 @@ int RunStudio(bool smoke_test, const std::string& output, std::string* error,
       const auto gl_error = glGetError();
       const bool success = content_verified && resize_verified &&
                            transform_verified && camera_input_verified &&
-                           panels.panels_drawn == 6 && gl_error == GL_NO_ERROR;
+                           panels.panels_drawn == 3 && gl_error == GL_NO_ERROR;
       std::ostringstream report;
       report << "{\n  \"success\": " << (success ? "true" : "false")
              << ",\n  \"frames\": " << frame + 1 << ",\n  \"viewportContent\": "

@@ -11,6 +11,7 @@
 #include <vector>
 
 #include "io/glb_importer.h"
+#include "platform/scene_identity.h"
 
 namespace wf {
 ImportService::ImportService(Reader reader)
@@ -57,16 +58,44 @@ bool ImportService::busy() const {
   return busy_;
 }
 
+bool ImportService::StartTask(std::function<void()> task) {
+  const std::lock_guard lock(mutex_);
+  if (!task || busy_ || stopping_) return false;
+  task_ = std::move(task);
+  task_done_ = false;
+  busy_ = pending_ = true;
+  stage_ = ImportStage::kReading;
+  wake_.notify_one();
+  return true;
+}
+
+bool ImportService::TakeTaskDone() {
+  const std::lock_guard lock(mutex_);
+  if (!task_done_) return false;
+  task_done_ = false;
+  busy_ = false;
+  stage_ = ImportStage::kIdle;
+  return true;
+}
+
 void ImportService::Work() {
   for (;;) {
     ImportResult result;
+    std::function<void()> task;
     {
       std::unique_lock lock(mutex_);
       wake_.wait(lock, [this] { return stopping_ || pending_; });
       if (stopping_) return;
+      task = std::move(task_);
       result.path = path_;
       result.generation = generation_;
       pending_ = false;
+    }
+    if (task) {
+      task();
+      const std::lock_guard lock(mutex_);
+      task_done_ = true;
+      continue;
     }
     std::vector<std::uint8_t> bytes;
     const auto read_start = std::chrono::steady_clock::now();
@@ -82,7 +111,11 @@ void ImportService::Work() {
         if (stopping_) return;
         stage_ = ImportStage::kParsing;
       }
-      ImportGlb(bytes, &result.scene, &result.error);
+      result.sha256 = Sha256(bytes);
+      if (result.sha256.empty())
+        result.error = "SHA256 failed";
+      else
+        ImportGlb(bytes, &result.scene, &result.error);
     }
     result.parse_ms = std::chrono::duration<double, std::milli>(
                           std::chrono::steady_clock::now() - parse_start)

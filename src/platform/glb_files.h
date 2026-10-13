@@ -3,6 +3,7 @@
 #ifndef WORLDFORGE_SRC_PLATFORM_GLB_FILES_H_
 #define WORLDFORGE_SRC_PLATFORM_GLB_FILES_H_
 #include <cstdint>
+#include <functional>
 #include <memory>
 #include <optional>
 #include <string>
@@ -24,7 +25,10 @@ struct FileChoice {
 // Callbacks retain only a mailbox, never a window, editor, ImGui or GL state.
 class GlbFilePicker {
  public:
-  GlbFilePicker();
+  // 可注入平台选框结果；默认使用原生异步选框，结果仍经邮箱消费。
+  // Injectable dialog provider; native default still delivers via mailbox.
+  using DialogProvider = std::function<FileChoice(bool scene, bool save)>;
+  explicit GlbFilePicker(DialogProvider provider = {});
 
   GlbFilePicker(const GlbFilePicker&) = delete;
 
@@ -32,7 +36,7 @@ class GlbFilePicker {
 
   ~GlbFilePicker();
 
-  bool Open(std::uint64_t generation);
+  bool Open(std::uint64_t generation, bool scene = false, bool save = false);
 
   std::optional<FileChoice> TakeChoice();
 
@@ -44,6 +48,7 @@ class GlbFilePicker {
                                int filter);
 
   std::shared_ptr<Mailbox> mailbox_;
+  DialogProvider provider_;
 };
 }  // namespace wf
 #endif  // WORLDFORGE_SRC_PLATFORM_GLB_FILES_H_
